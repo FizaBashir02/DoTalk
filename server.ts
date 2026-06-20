@@ -4,8 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 import { Server } from 'socket.io';
-let createViteServer: any;
 import { db } from './server/utils/db.js';
+
 
 // Import local express routes
 import authRouter from './server/routes/auth.routes.js';
@@ -450,22 +450,17 @@ async function startServer() {
     }
   });
 
-  if (process.env.NODE_ENV !== 'production') {
-  const { createServer: createViteServer } = await import('vite');
+ if (process.env.NODE_ENV === 'development') {
+  const { createServer } = await import('vite');
 
-  const vite = await createViteServer({
+  const vite = await createServer({
     root: path.join(process.cwd(), 'frontend'),
     server: { middlewareMode: true },
-    appType: 'spa',
+    appType: 'spa'
   });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+
+  app.use(vite.middlewares);
+}
 
   // Listen on PORT 3000
   server.listen(PORT, '0.0.0.0', () => {
