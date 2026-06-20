@@ -15,11 +15,8 @@ import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
 // Port 3000 is hardcoded as the only externally accessible port in the AI Studio environment.
-// For staging and production platforms (e.g. Railway, Render, Cloud Run), we resolve the variable port cleanly.
-let PORT = 3000;
-if (process.env.PORT && (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL || process.env.RENDER || process.env.NODE_ENV === 'production')) {
-  PORT = Number(process.env.PORT);
-}
+// For production environments (like Railway), we read the environment-provisioned PORT.
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
@@ -485,6 +482,7 @@ async function startServer() {
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
+        console.error('[DoTalk Server Error] Static application files (dist/index.html) are missing or incomplete. Please run \"npm run build\" to generate client assets before starting!');
         res.status(404).send('Static application files not found. Please run build script first.');
       }
     });
@@ -497,18 +495,28 @@ async function startServer() {
     console.log(`             Local Preview: http://localhost:${PORT}  `);
     console.log(`=======================================================`);
   });
+
+  // Graceful shutdown handling to ensure clean exit-codes and no scary NPM log failures
+  let isShuttingDown = false;
+  const gracefulShutdown = () => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log('[DoTalk Server] Received shutdown signal. Closing server connections gracefully...');
+    server.close(() => {
+      console.log('[DoTalk Server] HTTP server closed gracefully.');
+      process.exit(0);
+    });
+
+    // Forcefully exit after 10 seconds if connections are stuck
+    setTimeout(() => {
+      console.error('[DoTalk Server] Could not close all connections in time, forcefully exiting.');
+      process.exit(0);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
 }
-
-// Graceful shutdown handling to ensure clean exit-codes and no scary NPM log failures
-process.on('SIGTERM', () => {
-  console.log('[DoTalk Server] Received SIGTERM. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('[DoTalk Server] Received SIGINT. Shutting down gracefully...');
-  process.exit(0);
-});
 
 // Avoid crashes due to unhandled promise rejections or exceptions
 process.on('unhandledRejection', (reason, promise) => {
