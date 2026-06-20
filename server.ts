@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 import { Server } from 'socket.io';
-import { createServer as createViteServer } from 'vite';
+let createViteServer: any;
 import { db } from './server/utils/db.js';
 
 // Import local express routes
@@ -14,7 +14,7 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   // Verify MongoDB connection before starting the server
@@ -450,13 +450,14 @@ async function startServer() {
     }
   });
 
-  // Vite development integration or static serving
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      root: path.join(process.cwd(), 'frontend'),
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+  const { createServer: createViteServer } = await import('vite');
+
+  const vite = await createViteServer({
+    root: path.join(process.cwd(), 'frontend'),
+    server: { middlewareMode: true },
+    appType: 'spa',
+  });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
