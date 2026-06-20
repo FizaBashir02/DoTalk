@@ -106,6 +106,8 @@ export interface INotification {
 }
 
 class DatabaseManager {
+  private initStarted: boolean = false;
+  private mongoStarted: boolean = false;
   private filePath: string;
   private data: {
     users: IUser[];
@@ -118,25 +120,35 @@ class DatabaseManager {
   private isConnectedToMongo: boolean = false;
 
   constructor() {
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    this.filePath = path.join(uploadDir, 'db.json');
-    this.data = {
-      users: [],
-      otps: [],
-      chats: [],
-      messages: [],
-      statusStories: [],
-      notifications: []
-    };
-    this.load();
-    this.seedDemoData();
-    this.connectMongo();
+  const uploadDir = path.join(process.cwd(), 'uploads');
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
   }
 
+  this.filePath = path.join(uploadDir, 'db.json');
+
+  this.data = {
+    users: [],
+    otps: [],
+    chats: [],
+    messages: [],
+    statusStories: [],
+    notifications: []
+  };
+
+  this.load();
+}
+  public async init() {
+  if (this.initStarted) return;
+  this.initStarted = true;
+
+  await this.connectMongo();
+}
+
   private async connectMongo() {
+  if (this.mongoStarted) return;
+  this.mongoStarted = true;
     const envUri = process.env.MONGODB_URI;
     if (!envUri) {
       console.log('================================================================');
