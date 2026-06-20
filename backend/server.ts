@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
@@ -15,6 +16,12 @@ import statusRouter from './routes/status.routes.js';
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
+  // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
+  console.log('[DoTalk Multi-Mode] Initializing and verifying database connection in background...');
+  db.connectMongo().catch((err: any) => {
+    console.error('[DoTalk Multi-Mode] Note: MongoDB connection verification returned an error.', err.message);
+  });
+
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
@@ -251,7 +258,23 @@ async function startServer() {
     });
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  let isDev = process.env.NODE_ENV !== 'production';
+  try {
+    if (typeof __filename !== 'undefined' && (__filename.includes('dist') || __filename.endsWith('.cjs'))) {
+      isDev = false;
+    }
+  } catch (err) {}
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.url && (import.meta.url.includes('dist') || import.meta.url.endsWith('.cjs'))) {
+      isDev = false;
+    }
+  } catch (err) {}
+
+  if (isDev && !fs.existsSync(path.join(process.cwd(), 'frontend/src'))) {
+    isDev = false;
+  }
+
+  if (isDev) {
     const vite = await createViteServer({
       root: path.join(process.cwd(), 'frontend'),
       server: { middlewareMode: true },
@@ -259,10 +282,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'frontend/dist');
+    let distPath = path.join(process.cwd(), 'dist');
+    if (!fs.existsSync(path.join(distPath, 'index.html'))) {
+      distPath = path.join(process.cwd(), 'frontend/dist');
+    }
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Static application files not found. Please run build script first.');
+      }
     });
   }
 

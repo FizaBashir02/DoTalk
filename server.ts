@@ -449,7 +449,23 @@ async function startServer() {
   });
 
   // Vite development integration or static serving
-  if (process.env.NODE_ENV !== 'production') {
+  let isDev = process.env.NODE_ENV !== 'production';
+  try {
+    if (typeof __filename !== 'undefined' && (__filename.includes('dist') || __filename.endsWith('.cjs'))) {
+      isDev = false;
+    }
+  } catch (err) {}
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.url && (import.meta.url.includes('dist') || import.meta.url.endsWith('.cjs'))) {
+      isDev = false;
+    }
+  } catch (err) {}
+
+  if (isDev && !fs.existsSync(path.join(process.cwd(), 'frontend/src'))) {
+    isDev = false;
+  }
+
+  if (isDev) {
     const vite = await createViteServer({
       root: path.join(process.cwd(), 'frontend'),
       server: { middlewareMode: true },
@@ -460,7 +476,12 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('Static application files not found. Please run build script first.');
+      }
     });
   }
 

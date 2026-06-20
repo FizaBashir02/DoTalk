@@ -134,14 +134,13 @@ class DatabaseManager {
     };
     this.load();
     this.seedDemoData();
-    this.connectMongo().catch(err => {
-      console.error('[DoTalk Multi-Mode DB] Background MongoDB pre-connection failure:', err.message);
-    });
   }
 
-  private async connectMongo() {
-    if (this.isConnectedToMongo || mongoose.connection.readyState === 1) {
-      this.isConnectedToMongo = true;
+  public async connectMongo() {
+    if (this.isConnectedToMongo || mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
+      if (mongoose.connection.readyState === 1) {
+        this.isConnectedToMongo = true;
+      }
       return;
     }
     if (this.connectingPromise) return this.connectingPromise;

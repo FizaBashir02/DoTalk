@@ -154,14 +154,13 @@ class DatabaseManager {
     };
     this.load();
     this.seedDemoData();
-    this.verifyAndConnect().catch(err => {
-      console.error('[DoTalk Multi-Mode DB] Background MongoDB pre-connection failure:', err.message);
-    });
   }
 
   public async verifyAndConnect(): Promise<void> {
-    if (this.isConnectedToMongo || mongoose.connection.readyState === 1) {
-      this.isConnectedToMongo = true;
+    if (this.isConnectedToMongo || mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
+      if (mongoose.connection.readyState === 1) {
+        this.isConnectedToMongo = true;
+      }
       return;
     }
     if (this.connectingPromise) return this.connectingPromise;
