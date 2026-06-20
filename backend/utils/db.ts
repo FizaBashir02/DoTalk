@@ -179,13 +179,28 @@ class DatabaseManager {
         } else {
           console.log('[DoTalk Multi-Mode DB] MongoDB Atlas is currently fresh. Cloning pre-populated local tables.');
           for (const u of this.data.users) {
-            await UserModel.findOneAndUpdate({ email: u.email }, u, { upsert: true });
+            const query = mongoose.Types.ObjectId.isValid(u._id) ? { _id: u._id } : { email: u.email };
+            const updateData = { ...u };
+            if (!mongoose.Types.ObjectId.isValid(u._id)) {
+              delete (updateData as any)._id;
+            }
+            await UserModel.findOneAndUpdate(query, updateData, { upsert: true });
           }
           for (const c of this.data.chats) {
-            await ChatModel.findOneAndUpdate({ _id: c._id }, c, { upsert: true });
+            const query = mongoose.Types.ObjectId.isValid(c._id) ? { _id: c._id } : { _id: new mongoose.Types.ObjectId() };
+            const updateData = { ...c };
+            if (!mongoose.Types.ObjectId.isValid(c._id)) {
+              delete (updateData as any)._id;
+            }
+            await ChatModel.findOneAndUpdate(query, updateData, { upsert: true });
           }
           for (const m of this.data.messages) {
-            await MessageModel.findOneAndUpdate({ _id: m._id }, m, { upsert: true });
+            const query = mongoose.Types.ObjectId.isValid(m._id) ? { _id: m._id } : { _id: new mongoose.Types.ObjectId() };
+            const updateData = { ...m };
+            if (!mongoose.Types.ObjectId.isValid(m._id)) {
+              delete (updateData as any)._id;
+            }
+            await MessageModel.findOneAndUpdate(query, updateData, { upsert: true });
           }
           console.log('[DoTalk Sync] Initial database seeding clone has finished flawlessly.');
         }
