@@ -274,6 +274,26 @@ async function startServer() {
   });
 }
 
+// Graceful shutdown handling to ensure clean exit-codes and no scary NPM log failures
+process.on('SIGTERM', () => {
+  console.log('[DoTalk Server] Received SIGTERM. Shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('[DoTalk Server] Received SIGINT. Shutting down gracefully...');
+  process.exit(0);
+});
+
+// Avoid crashes due to unhandled promise rejections or exceptions
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[DoTalk Server] Warning: Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[DoTalk Server] Error: Uncaught Exception:', error);
+});
+
 startServer().catch(err => {
   console.error('DoTalk server start failure', err);
 });
