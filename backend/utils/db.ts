@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
-import mongoose from 'mongoose';
 import UserModelRaw from '../models/User.js';
 import ChatModelRaw from '../models/Chat.js';
 import MessageModelRaw from '../models/Message.js';
 import OTPModelRaw from '../models/OTP.js';
+import mongoose from "mongoose";
+
+
 
 const UserModel = UserModelRaw as mongoose.Model<any>;
 const ChatModel = ChatModelRaw as mongoose.Model<any>;
@@ -107,7 +109,9 @@ export interface INotification {
 
 class DatabaseManager {
   private initStarted: boolean = false;
-  private mongoStarted: boolean = false;
+private isConnectedToMongo: boolean = false;
+private isMongoConnected: boolean = false;
+private connectInProgress: boolean = false;
   private filePath: string;
   private data: {
     users: IUser[];
@@ -117,7 +121,7 @@ class DatabaseManager {
     statusStories: IStatusStory[];
     notifications: INotification[];
   };
-  private isConnectedToMongo: boolean = false;
+  
 
   constructor() {
   const uploadDir = path.join(process.cwd(), 'uploads');
@@ -146,21 +150,26 @@ class DatabaseManager {
   await this.connectMongo();
 }
 
-  private async connectMongo() {
-  if (this.mongoStarted) return;
-  this.mongoStarted = true;
-    const envUri = process.env.MONGODB_URI;
-    if (!envUri) {
-      console.log('================================================================');
-      console.log('[DoTalk Multi-Mode DB] No MONGODB_URI found inside Environment.');
-      console.log('[DoTalk Multi-Mode DB] Utilizing high performance local JSON database fallback.');
-      console.log('================================================================');
-      return;
-    }
+private async connectMongo() {
+  if (this.isMongoConnected || this.connectInProgress) return;
+
+  this.connectInProgress = true;
+
+  const envUri = process.env.MONGODB_URI;
+
+  if (!envUri) {
+    console.log('================================================================');
+    console.log('[DoTalk Multi-Mode DB] No MONGODB_URI found inside Environment.');
+    console.log('[DoTalk Multi-Mode DB] Utilizing high performance local JSON database fallback.');
+    console.log('================================================================');
+
+    this.connectInProgress = false; // IMPORTANT FIX
+    return;
+  }
 
     try {
       await mongoose.connect(envUri);
-      this.isConnectedToMongo = true;
+      this.isMongoConnected = true;
       console.log('================================================================');
       console.log('[DoTalk Multi-Mode DB] Successfully connected to live MongoDB atlas!');
       console.log('[DoTalk Multi-Mode DB] Activating real-time dual-writes & sync buffer.');
@@ -194,9 +203,11 @@ class DatabaseManager {
         }
         console.log('[DoTalk Sync] Initial database seeding clone has finished flawlessly.');
       }
-    } catch (err) {
-      console.error('[DoTalk Multi-Mode DB] Error booting up MongoDB setup:', err);
     }
+    catch (err) {
+  this.connectInProgress = false;
+  console.error('[DoTalk Multi-Mode DB] MongoDB setup failed:', err);
+}
   }
 
   private load() {
