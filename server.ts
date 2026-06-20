@@ -14,7 +14,7 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
@@ -307,9 +307,6 @@ async function startServer() {
 
   // REST API Routes Config
   app.set('io', io);
-  app.get('/', (req, res) => {
-    res.send('API is running');
-  });
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', serverTime: new Date().toISOString() });
   });
