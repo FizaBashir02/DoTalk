@@ -147,7 +147,16 @@ private connectInProgress: boolean = false;
   if (this.initStarted) return;
   this.initStarted = true;
 
-  await this.connectMongo();
+  if (this.isConnectedToMongo || this.connectInProgress) return;
+
+  this.connectInProgress = true;
+
+  try {
+    await this.connectMongo(); // your real connection function
+    this.isConnectedToMongo = true;
+  } finally {
+    this.connectInProgress = false;
+  }
 }
 
 private async connectMongo() {
