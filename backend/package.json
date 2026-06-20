@@ -2,10 +2,12 @@
   "name": "dotalk-backend",
   "version": "1.0.0",
   "private": true,
-  "main": "server.ts",
+  "main": "dist/server.js",
   "type": "module",
   "scripts": {
-    "start": "tsx server.ts"
+    "dev": "tsx server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
