@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+:root {
+  --bg-color: #FEEBC5;
+  --card-bg-color: #FFFFFF;
+  --text-primary: #3B2E2B;
+  --text-secondary: #6B5B57;
+  --border-color: #E8D6B3;
+  
+  --button-bg: #3B2E2B;
+  --button-text: #FEEBC5;
+  --icon-color: #3B2E2B;
+  --input-bg: #FFFFFF;
+  --input-text: #3B2E2B;
+  
+  --outgoing-bg: #FEEBC5;
+  --outgoing-text: #3B2E2B;
+  --incoming-bg: #FFFFFF;
+  --incoming-text: #3B2E2B;
+}
+
+.dark {
+  --bg-color: #3B2E2B;
+  --card-bg-color: #4A3A36;
+  --text-primary: #FEEBC5;
+  --text-secondary: #E6D7BC;
+  --border-color: #5A4A45;
+  
+  --button-bg: #FEEBC5;
+  --button-text: #3B2E2B;
+  --icon-color: #FEEBC5;
+  --input-bg: #4A3A36;
+  --input-text: #FEEBC5;
+  
+  --outgoing-bg: #FEEBC5;
+  --outgoing-text: #3B2E2B;
+  --incoming-bg: #4A3A36;
+  --incoming-text: #FEEBC5;
+}
+
+@theme {
+  --color-app-bg: var(--bg-color);
+  --color-app-card: var(--card-bg-color);
+  --color-app-text-primary: var(--text-primary);
+  --color-app-text-secondary: var(--text-secondary);
+  --color-app-border: var(--border-color);
+  
+  --color-app-btn-bg: var(--button-bg);
+  --color-app-btn-text: var(--button-text);
+  --color-app-icon: var(--icon-color);
+  --color-app-input-bg: var(--input-bg);
+  --color-app-input-text: var(--input-text);
+  
+  --color-app-outgoing-bg: var(--outgoing-bg);
+  --color-app-outgoing-text: var(--outgoing-text);
+  --color-app-incoming-bg: var(--incoming-bg);
+  --color-app-incoming-text: var(--incoming-text);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Animations and Custom Smoothings */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}

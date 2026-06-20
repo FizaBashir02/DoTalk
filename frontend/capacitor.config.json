@@ -1,0 +1,9 @@
+{
+  "appId": "com.dotalk.app",
+  "appName": "DoTalk",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

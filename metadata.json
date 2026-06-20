@@ -1,0 +1,6 @@
+{
+  "name": "DoTalk",
+  "description": "Premium real-time mobile messaging application with private and group chats, status updates, and rich profiles.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
