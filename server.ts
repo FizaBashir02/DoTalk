@@ -4,8 +4,8 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 import { Server } from 'socket.io';
+import { createServer as createViteServer } from 'vite';
 import { db } from './server/utils/db.js';
-
 
 // Import local express routes
 import authRouter from './server/routes/auth.routes.js';
@@ -17,13 +17,11 @@ import statusRouter from './server/routes/status.routes.js';
 const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
-  // Verify MongoDB connection before starting the server
-  console.log('[DoTalk Multi-Mode] Initializing and verifying database connection...');
-  try {
-    await db.verifyAndConnect();
-  } catch (err: any) {
-    console.error('[DoTalk Multi-Mode] Note: MongoDB connection verification returned an error on startup.', err.message);
-  }
+  // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
+  console.log('[DoTalk Multi-Mode] Initializing and verifying database connection in background...');
+  db.verifyAndConnect().catch((err: any) => {
+    console.error('[DoTalk Multi-Mode] Note: MongoDB connection verification returned an error.', err.message);
+  });
 
   const app = express();
   app.use(cors());
@@ -309,6 +307,9 @@ async function startServer() {
 
   // REST API Routes Config
   app.set('io', io);
+  app.get('/', (req, res) => {
+    res.send('API is running');
+  });
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', serverTime: new Date().toISOString() });
   });
@@ -450,17 +451,21 @@ async function startServer() {
     }
   });
 
- if (process.env.NODE_ENV === 'development') {
-  const { createServer } = await import('vite');
-
-  const vite = await createServer({
-    root: path.join(process.cwd(), 'frontend'),
-    server: { middlewareMode: true },
-    appType: 'spa'
-  });
-
-  app.use(vite.middlewares);
-}
+  // Vite development integration or static serving
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      root: path.join(process.cwd(), 'frontend'),
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
 
   // Listen on PORT 3000
   server.listen(PORT, '0.0.0.0', () => {

@@ -135,6 +135,7 @@ class DatabaseManager {
     blockedUsersTable?: IBlockedUser[];
   };
   private isConnectedToMongo: boolean = false;
+  private connectingPromise: Promise<void> | null = null;
 
   constructor() {
     const uploadDir = path.join(process.cwd(), 'uploads');
@@ -160,68 +161,74 @@ class DatabaseManager {
 
   public async verifyAndConnect(): Promise<void> {
     if (this.isConnectedToMongo) return;
-    const envUri = process.env.MONGODB_URI;
-    const isValidScheme = envUri && (envUri.trim().startsWith('mongodb://') || envUri.trim().startsWith('mongodb+srv://'));
-    
-    if (!isValidScheme) {
-      const missingOrInvalid = !envUri ? "missing" : "invalid scheme";
-      console.error('================================================================');
-      console.error(`[DoTalk Multi-Mode DB] ERROR: MONGODB_URI is ${missingOrInvalid}.`);
-      console.error(`[DoTalk Multi-Mode DB] Expected a valid "mongodb://" or "mongodb+srv://" URI under Secrets.`);
-      console.error(`[DoTalk Multi-Mode DB] Defaulting to active local database storage framework.`);
-      console.error('================================================================');
-      return;
-    }
+    if (this.connectingPromise) return this.connectingPromise;
 
-    try {
-      console.log(`[DoTalk Multi-Mode DB] Connecting to database...`);
-      await mongoose.connect(envUri.trim());
-      this.isConnectedToMongo = true;
-      console.log('================================================================');
-      console.log('[DoTalk Multi-Mode DB] Successfully connected to live MongoDB atlas!');
-      console.log('[DoTalk Multi-Mode DB] Activating real-time dual-writes & sync buffer.');
-      console.log('================================================================');
-
-      // Sync local collections
-      const userCount = await UserModel.countDocuments();
-      if (userCount > 0) {
-        console.log('[DoTalk Multi-Mode DB] Found existing collections! Loading from MongoDB...');
-        const users = await UserModel.find().lean();
-        const chats = await ChatModel.find().lean();
-        const messages = await MessageModel.find().lean();
-        const otps = await OTPModel.find().lean();
-
-        this.data.users = users.map((u: any) => ({
-          ...u,
-          _id: String(u._id),
-          contacts: u.contacts || [],
-          incomingRequests: u.incomingRequests || [],
-          outgoingRequests: u.outgoingRequests || []
-        }));
-        this.data.chats = chats.map((c: any) => ({ ...c, _id: String(c._id) }));
-        this.data.messages = messages.map((m: any) => ({ ...m, _id: String(m._id) }));
-        this.data.otps = otps.map((o: any) => ({ ...o, _id: String(o._id) }));
-
-        console.log(`[DoTalk Sync] Loaded ${users.length} users and ${chats.length} chat panels directly from MongoDB.`);
-      } else {
-        console.log('[DoTalk Multi-Mode DB] MongoDB Atlas is currently fresh. Cloning pre-populated local tables.');
-        for (const u of this.data.users) {
-          await UserModel.findOneAndUpdate({ email: u.email }, u, { upsert: true });
-        }
-        for (const c of this.data.chats) {
-          await ChatModel.findOneAndUpdate({ _id: c._id }, c, { upsert: true });
-        }
-        for (const m of this.data.messages) {
-          await MessageModel.findOneAndUpdate({ _id: m._id }, m, { upsert: true });
-        }
-        console.log('[DoTalk Sync] Initial database seeding clone has finished flawlessly.');
+    this.connectingPromise = (async () => {
+      const envUri = process.env.MONGODB_URI;
+      const isValidScheme = envUri && (envUri.trim().startsWith('mongodb://') || envUri.trim().startsWith('mongodb+srv://'));
+      
+      if (!isValidScheme) {
+        const missingOrInvalid = !envUri ? "missing" : "invalid scheme";
+        console.error('================================================================');
+        console.error(`[DoTalk Multi-Mode DB] ERROR: MONGODB_URI is ${missingOrInvalid}.`);
+        console.error(`[DoTalk Multi-Mode DB] Expected a valid "mongodb://" or "mongodb+srv://" URI under Secrets.`);
+        console.error(`[DoTalk Multi-Mode DB] Defaulting to active local database storage framework.`);
+        console.error('================================================================');
+        return;
       }
-    } catch (err: any) {
-      console.error('================================================================');
-      console.error('[DoTalk Multi-Mode DB] Error booting up MongoDB setup:', err.message);
-      console.error('================================================================');
-      throw err;
-    }
+
+      try {
+        console.log(`[DoTalk Multi-Mode DB] Connecting to database...`);
+        await mongoose.connect(envUri.trim());
+        this.isConnectedToMongo = true;
+        console.log('================================================================');
+        console.log('[DoTalk Multi-Mode DB] Successfully connected to live MongoDB atlas!');
+        console.log('[DoTalk Multi-Mode DB] Activating real-time dual-writes & sync buffer.');
+        console.log('================================================================');
+
+        // Sync local collections
+        const userCount = await UserModel.countDocuments();
+        if (userCount > 0) {
+          console.log('[DoTalk Multi-Mode DB] Found existing collections! Loading from MongoDB...');
+          const users = await UserModel.find().lean();
+          const chats = await ChatModel.find().lean();
+          const messages = await MessageModel.find().lean();
+          const otps = await OTPModel.find().lean();
+
+          this.data.users = users.map((u: any) => ({
+            ...u,
+            _id: String(u._id),
+            contacts: u.contacts || [],
+            incomingRequests: u.incomingRequests || [],
+            outgoingRequests: u.outgoingRequests || []
+          }));
+          this.data.chats = chats.map((c: any) => ({ ...c, _id: String(c._id) }));
+          this.data.messages = messages.map((m: any) => ({ ...m, _id: String(m._id) }));
+          this.data.otps = otps.map((o: any) => ({ ...o, _id: String(o._id) }));
+
+          console.log(`[DoTalk Sync] Loaded ${users.length} users and ${chats.length} chat panels directly from MongoDB.`);
+        } else {
+          console.log('[DoTalk Multi-Mode DB] MongoDB Atlas is currently fresh. Cloning pre-populated local tables.');
+          for (const u of this.data.users) {
+            await UserModel.findOneAndUpdate({ email: u.email }, u, { upsert: true });
+          }
+          for (const c of this.data.chats) {
+            await ChatModel.findOneAndUpdate({ _id: c._id }, c, { upsert: true });
+          }
+          for (const m of this.data.messages) {
+            await MessageModel.findOneAndUpdate({ _id: m._id }, m, { upsert: true });
+          }
+          console.log('[DoTalk Sync] Initial database seeding clone has finished flawlessly.');
+        }
+      } catch (err: any) {
+        console.error('================================================================');
+        console.error('[DoTalk Multi-Mode DB] Error booting up MongoDB setup:', err.message);
+        console.error('================================================================');
+        throw err;
+      }
+    })();
+
+    return this.connectingPromise;
   }
 
   private load() {

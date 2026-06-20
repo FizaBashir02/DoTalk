@@ -12,18 +12,16 @@ import userRouter from './routes/user.routes.js';
 import chatRouter from './routes/chat.routes.js';
 import statusRouter from './routes/status.routes.js';
 
-const PORT = Number(process.env.PORT) || 8080;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   const app = express();
-  const server = http.createServer(app);
-
-  // ---------------- CORS + BODY ----------------
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-  // ---------------- SOCKET IO ----------------
+  const server = http.createServer(app);
+
   const io = new Server(server, {
     cors: {
       origin: '*',
@@ -31,42 +29,56 @@ async function startServer() {
     }
   });
 
-  // ⚠️ safer structure (prevents memory leak issues later)
-  const activeSockets = new Map<string, string>();
+  const activeSockets = new Map<string, string>(); // socketId -> userId
 
   io.on('connection', (socket) => {
-    console.log(`[Sockets] Connected: ${socket.id}`);
+    console.log(`[DoTalk Sockets] User connected: ${socket.id}`);
 
     socket.on('register_user', (userId: string) => {
       activeSockets.set(socket.id, userId);
-
       db.updateUser(userId, { onlineStatus: 'online' });
+      io.emit('user_status_changed', { userId, status: 'online' });
+      console.log(`[DoTalk Sockets] User registered: ${userId}`);
+    });
 
-      io.emit('user_status_changed', {
-        userId,
-        status: 'online'
+    socket.on('join_chat', (chatId: string) => {
+      socket.join(chatId);
+      console.log(`[DoTalk Sockets] Socket ${socket.id} joined Chat Room: ${chatId}`);
+    });
+
+    socket.on('leave_chat', (chatId: string) => {
+      socket.leave(chatId);
+      console.log(`[DoTalk Sockets] Socket ${socket.id} left Chat Room: ${chatId}`);
+    });
+
+    socket.on('typing', (data: { chatId: string; userId: string; isTyping: boolean }) => {
+      socket.to(data.chatId).emit('user_typing', {
+        chatId: data.chatId,
+        userId: data.userId,
+        isTyping: data.isTyping
       });
     });
 
-    socket.on('join_chat', (chatId: string) => socket.join(chatId));
-    socket.on('leave_chat', (chatId: string) => socket.leave(chatId));
-
-    socket.on('typing', (data) => {
-      socket.to(data.chatId).emit('user_typing', data);
-    });
-
-    socket.on('send_message', (data) => {
+    socket.on('send_message', (data: {
+      chatId: string;
+      senderId: string;
+      senderName: string;
+      text: string;
+      replyToMessageId?: string;
+      mediaUrl?: string;
+      mediaType?: 'image' | 'video' | 'file' | 'audio';
+      mediaName?: string;
+      mediaSize?: string;
+    }) => {
       const chat = db.getChatById(data.chatId);
       if (!chat) return;
 
       let replyText = '';
-
       if (data.replyToMessageId) {
-        const parentMsg = db
-          .getMessagesForChat(data.chatId)
-          .find(m => m._id === data.replyToMessageId);
-
-        replyText = parentMsg?.text || 'Media attachment';
+        const parentMsg = db.getMessagesForChat(data.chatId).find(m => m._id === data.replyToMessageId);
+        if (parentMsg) {
+          replyText = parentMsg.text || 'Media attachment';
+        }
       }
 
       const newMessage = db.createMessage({
@@ -97,13 +109,12 @@ async function startServer() {
       });
     });
 
-    socket.on('message_react', (data) => {
+    socket.on('message_react', (data: { chatId: string; messageId: string; userId: string; username: string; emoji: string }) => {
       const msgs = db.getMessagesForChat(data.chatId);
       const msg = msgs.find(m => m._id === data.messageId);
       if (!msg) return;
 
       const idx = msg.reactions.findIndex(r => r.userId === data.userId);
-
       if (idx !== -1) {
         if (msg.reactions[idx].emoji === data.emoji) {
           msg.reactions.splice(idx, 1);
@@ -111,13 +122,8 @@ async function startServer() {
           msg.reactions[idx].emoji = data.emoji;
         }
       } else {
-        msg.reactions.push({
-          userId: data.userId,
-          username: data.username,
-          emoji: data.emoji
-        });
+        msg.reactions.push({ userId: data.userId, username: data.username, emoji: data.emoji });
       }
-
       db.save();
 
       io.to(data.chatId).emit('message_reaction_update', {
@@ -126,20 +132,18 @@ async function startServer() {
       });
     });
 
-    socket.on('mark_seen', (data) => {
+    socket.on('mark_seen', (data: { chatId: string; userId: string }) => {
       const messages = db.getMessagesForChat(data.chatId);
-      let updated = false;
-
+      let updatedNeeded = false;
       messages.forEach(m => {
         if (m.senderId !== data.userId && !m.seenBy.includes(data.userId)) {
           m.seenBy.push(data.userId);
-          updated = true;
+          updatedNeeded = true;
         }
       });
 
-      if (updated) {
+      if (updatedNeeded) {
         db.save();
-
         io.to(data.chatId).emit('messages_seen_ack', {
           chatId: data.chatId,
           userId: data.userId
@@ -147,70 +151,82 @@ async function startServer() {
       }
     });
 
-    // ---------------- CALL SYSTEM ----------------
-    socket.on('initiate_call', (data) => {
+    socket.on('initiate_call', (data: { receiverId: string, callerId: string, callerName: string, callerPhoto: string, callerUsername: string, hasVideo: boolean }) => {
+      console.log(`[DoTalk Calls] ${data.callerName} initiating call to: ${data.receiverId}`);
       let found = false;
-
-      for (const [socketId, userId] of activeSockets.entries()) {
-        if (userId === data.receiverId) {
-          io.to(socketId).emit('incoming_call', data);
+      for (const [sId, uId] of activeSockets.entries()) {
+        if (uId === data.receiverId) {
+          io.to(sId).emit('incoming_call', {
+            callerId: data.callerId,
+            callerName: data.callerName,
+            callerPhoto: data.callerPhoto,
+            callerUsername: data.callerUsername,
+            hasVideo: data.hasVideo
+          });
           found = true;
         }
       }
-
-      if (!found) socket.emit('call_rejected');
+      if (!found) {
+        socket.emit('call_rejected');
+      }
     });
 
-    socket.on('answer_call', (data) => {
-      for (const [socketId, userId] of activeSockets.entries()) {
-        if (userId === data.callerId) {
-          io.to(socketId).emit('call_answered');
+    socket.on('answer_call', (data: { callerId: string }) => {
+      console.log(`[DoTalk Calls] Call answered by ${data.callerId}`);
+      for (const [sId, uId] of activeSockets.entries()) {
+        if (uId === data.callerId) {
+          io.to(sId).emit('call_answered');
         }
       }
     });
 
-    socket.on('reject_call', (data) => {
-      for (const [socketId, userId] of activeSockets.entries()) {
-        if (userId === data.callerId) {
-          io.to(socketId).emit('call_rejected');
+    socket.on('reject_call', (data: { callerId: string }) => {
+      console.log(`[DoTalk Calls] Call rejected by caller/receiver`);
+      for (const [sId, uId] of activeSockets.entries()) {
+        if (uId === data.callerId) {
+          io.to(sId).emit('call_rejected');
         }
       }
     });
 
-    socket.on('end_call', (data) => {
-      for (const [socketId, userId] of activeSockets.entries()) {
-        if (userId === data.partnerId) {
-          io.to(socketId).emit('call_ended');
+    socket.on('call_busy', (data: { callerId: string }) => {
+      console.log(`[DoTalk Calls] Partner busy for: ${data.callerId}`);
+      for (const [sId, uId] of activeSockets.entries()) {
+        if (uId === data.callerId) {
+          io.to(sId).emit('call_busy_rec');
         }
       }
     });
 
-    // ---------------- DISCONNECT ----------------
+    socket.on('end_call', (data: { partnerId: string }) => {
+      console.log(`[DoTalk Calls] Call end command to: ${data.partnerId}`);
+      for (const [sId, uId] of activeSockets.entries()) {
+        if (uId === data.partnerId) {
+          io.to(sId).emit('call_ended');
+        }
+      }
+    });
+
     socket.on('disconnect', () => {
       const userId = activeSockets.get(socket.id);
-
       if (userId) {
         activeSockets.delete(socket.id);
-
         db.updateUser(userId, {
           onlineStatus: 'offline',
           lastSeen: new Date().toISOString()
         });
-
-        io.emit('user_status_changed', {
-          userId,
-          status: 'offline',
-          lastSeen: new Date().toISOString()
-        });
+        io.emit('user_status_changed', { userId, status: 'offline', lastSeen: new Date().toISOString() });
+        console.log(`[DoTalk Sockets] User disconnected & marked offline: ${userId}`);
       }
     });
   });
 
-  // ---------------- ROUTES ----------------
-  app.get('/', (_, res) => res.send('API running 🚀'));
+  app.get('/', (req, res) => {
+    res.send('API is running');
+  });
 
-  app.get('/api/health', (_, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', serverTime: new Date().toISOString() });
   });
 
   app.use('/api/auth', authRouter);
@@ -220,61 +236,45 @@ async function startServer() {
   app.use('/api/status', statusRouter);
 
   app.post('/api/upload', (req, res) => {
-    const { fileName, fileData } = req.body;
-
+    const { fileName, fileType, fileData } = req.body;
     if (!fileData) {
-      return res.status(400).json({ error: 'No file' });
+      res.status(400).json({ error: 'No files uploaded' });
+      return;
     }
+    const mockCloudinaryUrl = `https://images.unsplash.com/photo-${Math.floor(Math.random() * 1000) + 150000000}?w=600`;
 
-    const url = `https://images.unsplash.com/photo-${Date.now()}?w=600`;
-
-    res.json({
-      message: 'Upload successful',
-      cloudinaryUrl: fileData.startsWith('http') ? fileData : url,
-      fileName: fileName || 'file',
+    res.status(200).json({
+      message: 'Upload successful (Cloudinary compressed)',
+      cloudinaryUrl: fileData.startsWith('http') ? fileData : mockCloudinaryUrl,
+      fileName: fileName || 'attachment.png',
       fileSize: '320 KB'
     });
   });
 
-  // ---------------- VITE / STATIC ----------------
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       root: path.join(process.cwd(), 'frontend'),
       server: { middlewareMode: true },
-      appType: 'spa'
+      appType: 'spa',
     });
-
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'frontend/dist');
-
     app.use(express.static(distPath));
-
-    app.get('*', (_, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  // ---------------- IMPORTANT FIX ----------------
   server.listen(PORT, '0.0.0.0', () => {
-    console.log('=======================================');
-    console.log(' DoTalk Server Running Successfully ');
-    console.log(` PORT: ${PORT}`);
-    console.log('=======================================');
-  });
-
-  // ---------------- GRACEFUL SHUTDOWN (NEW FIX) ----------------
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down...');
-    server.close(() => process.exit(0));
-  });
-
-  process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down...');
-    server.close(() => process.exit(0));
+    console.log(`=======================================================`);
+    console.log(`        DoTalk Full-Stack Server Running Successfully `);
+    console.log(`             Local Preview: http://localhost:${PORT}  `);
+    console.log(`=======================================================`);
   });
 }
 
 startServer().catch(err => {
-  console.error('Server failed:', err);
+  console.error('DoTalk server start failure', err);
 });
+export {};

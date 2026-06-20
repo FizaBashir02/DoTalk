@@ -2,22 +2,22 @@
   "name": "dotalk-backend",
   "version": "1.0.0",
   "private": true,
-  "main": "dist/server.js",
+  "main": "server.ts",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "clean": "rm -rf dist",
-    "build": "npm run clean && tsc",
-    "start": "node dist/server.js"
+    "build": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.25.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "typescript": "^5.8.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
