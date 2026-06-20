@@ -12,7 +12,7 @@ import userRouter from './routes/user.routes.js';
 import chatRouter from './routes/chat.routes.js';
 import statusRouter from './routes/status.routes.js';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   const app = express();

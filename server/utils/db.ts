@@ -160,7 +160,10 @@ class DatabaseManager {
   }
 
   public async verifyAndConnect(): Promise<void> {
-    if (this.isConnectedToMongo) return;
+    if (this.isConnectedToMongo || mongoose.connection.readyState === 1) {
+      this.isConnectedToMongo = true;
+      return;
+    }
     if (this.connectingPromise) return this.connectingPromise;
 
     this.connectingPromise = (async () => {
