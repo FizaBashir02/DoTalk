@@ -25,9 +25,49 @@ async function startServer() {
   });
 
   const app = express();
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+  const corsOptions = {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (like mobile apps, curl, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      const allowedOrigins = [
+        'https://do-talk-ivory.vercel.app',
+        'https://dotalk-production.up.railway.app',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:4000',
+        'http://127.0.0.1:3000',
+        'http://10.0.2.2:3000'
+      ];
+
+      const isAllowed = allowedOrigins.includes(origin) || 
+                        origin.endsWith('.vercel.app') ||
+                        /^http:\/\/localhost(:\d+)?$/.test(origin) ||
+                        /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin) ||
+                        /^http:\/\/10\.0\.2\.2(:\d+)?$/.test(origin);
+
+      if (isAllowed) {
+        return callback(null, true);
+      } else {
+        // Log CORS block to help debugging but allow anyway, or return a clean warning
+        console.warn(`[CORS Info] Origin ${origin} is not in strict allowed list. Allowing to prevent breakages.`);
+        return callback(null, true);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200 // Responds with 200 OK for preflight OPTIONS to satisfy older or stricter clients
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
+
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
   const server = http.createServer(app);
 

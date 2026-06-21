@@ -7,9 +7,9 @@ import io from 'socket.io-client';
  * 
  * - For Android Emulator + Local Backend: Use 'http://10.0.2.2:3000'
  * - For Physical Device + Local Backend: Use your computer's local IP (e.g. 'http://192.168.1.50:3000')
- * - For Production Backend: Use your deployment URL (e.g. 'https://ais-dev-qn4ntqpz5dgge4klsnb3lx-822264812231.asia-southeast1.run.app')
+ * - For Production Backend: Use your deployment URL (e.g. 'https://dotalk-production.up.railway.app')
  */
-export const API_BASE_URL = 'https://ais-dev-qn4ntqpz5dgge4klsnb3lx-822264812231.asia-southeast1.run.app';
+export const API_BASE_URL = 'https://dotalk-production.up.railway.app';
 
 // Backward compatibility fallback for other files
 export const BACKEND_URL = API_BASE_URL;
