@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, StatusBar, Alert } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { getDiagnosticErrorMessage } from '../utils/api';
 
 export default function LoginScreen({ navigation }: any) {
   const { login: performLogin, registerUser: performRegister, verifyOtpCode: performVerify } = useAuth();
@@ -68,7 +69,11 @@ export default function LoginScreen({ navigation }: any) {
       }
     } catch (e: any) {
       setLoading(false);
-      Alert.alert('Auth Error', e.message || 'There was a problem authenticating. Please try again.');
+      const detailedMessage = getDiagnosticErrorMessage(e);
+      Alert.alert(
+        isVerifyStep ? 'Verification Failure' : isRegister ? 'Registration Failure' : 'Sign In Failure',
+        detailedMessage
+      );
     }
   };
 

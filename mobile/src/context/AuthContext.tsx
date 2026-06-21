@@ -67,9 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem('dotalk_user', JSON.stringify(loggedUser));
       return true;
     } catch (err: any) {
-      const errMsg = err.response?.data?.error || 'Failed to sign in. Please verify credentials.';
-      Alert.alert('Authentication Failed', errMsg);
-      return false;
+      console.error('[AuthContext login error]', err);
+      throw err;
     }
   };
 
@@ -78,9 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await api.post('/api/auth/register', userData);
       return 'SENT';
     } catch (err: any) {
-      const errMsg = err.response?.data?.error || 'Registration failed.';
-      Alert.alert('Registration Error', errMsg);
-      return null;
+      console.error('[AuthContext registerUser error]', err);
+      throw err;
     }
   };
 
@@ -97,9 +95,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem('dotalk_user', JSON.stringify(loggedUser));
       return true;
     } catch (err: any) {
-      const errMsg = err.response?.data?.error || 'Invalid OTP code.';
-      Alert.alert('Verification Error', errMsg);
-      return false;
+      console.error('[AuthContext verifyOtpCode error]', err);
+      throw err;
     }
   };
 
