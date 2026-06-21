@@ -35,6 +35,7 @@ async function startServer() {
       
       const allowedOrigins = [
         'https://do-talk-ivory.vercel.app',
+        'https://do-talk-amber.vercel.app',
         'https://dotalk-production.up.railway.app',
         'http://localhost:3000',
         'http://localhost:5173',

@@ -166,13 +166,13 @@ class DatabaseManager {
     if (this.connectingPromise) return this.connectingPromise;
 
     this.connectingPromise = (async () => {
-      const envUri = process.env.MONGODB_URI;
+      const envUri = process.env.MONGODB_URI || process.env.MONGO_URI;
       const isValidScheme = envUri && (envUri.trim().startsWith('mongodb://') || envUri.trim().startsWith('mongodb+srv://'));
       
       if (!isValidScheme) {
         const missingOrInvalid = !envUri ? "missing" : "using an offline scheme";
         console.log('================================================================');
-        console.log(`[DoTalk Multi-Mode DB] Status: MONGODB_URI is ${missingOrInvalid}.`);
+        console.log(`[DoTalk Multi-Mode DB] Status: MONGODB_URI or MONGO_URI is ${missingOrInvalid}.`);
         console.log(`[DoTalk Multi-Mode DB] Expected a valid "mongodb://" or "mongodb+srv://" URI under Secrets.`);
         console.log(`[DoTalk Multi-Mode DB] Defaulting to active local database storage framework.`);
         console.log('================================================================');

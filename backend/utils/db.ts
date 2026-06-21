@@ -34,6 +34,9 @@ export interface IOTP {
   expiresAt: string; // ISO string
   verified: boolean;
   attempts: number;
+  lastSentAt?: string; // ISO string
+  lockoutUntil?: string; // ISO string
+  pendingName?: string; // For registration before verification
 }
 
 export interface IReaction {
@@ -146,10 +149,10 @@ class DatabaseManager {
     if (this.connectingPromise) return this.connectingPromise;
 
     this.connectingPromise = (async () => {
-      const envUri = process.env.MONGODB_URI;
+      const envUri = process.env.MONGODB_URI || process.env.MONGO_URI;
       if (!envUri) {
         console.log('================================================================');
-        console.log('[DoTalk Multi-Mode DB] No MONGODB_URI found inside Environment.');
+        console.log('[DoTalk Multi-Mode DB] No MONGODB_URI or MONGO_URI found inside Environment.');
         console.log('[DoTalk Multi-Mode DB] Utilizing high performance local JSON database fallback.');
         console.log('================================================================');
         return;
@@ -534,14 +537,17 @@ class DatabaseManager {
     return undefined;
   }
 
-  public createOTP(email: string, codeHash: string, expiresAt: Date): IOTP {
+  public createOTP(email: string, codeHash: string, expiresAt: Date, lastSentAt?: string, lockoutUntil?: string, pendingName?: string): IOTP {
     const newOtp: IOTP = {
       _id: 'otp_' + Math.random().toString(36).substring(2, 11),
       email,
       codeHash,
       expiresAt: expiresAt.toISOString(),
       verified: false,
-      attempts: 0
+      attempts: 0,
+      lastSentAt,
+      lockoutUntil,
+      pendingName
     };
     this.data.otps = this.data.otps.filter(o => o.email.toLowerCase() !== email.toLowerCase());
     this.data.otps.push(newOtp);

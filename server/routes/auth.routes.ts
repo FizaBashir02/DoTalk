@@ -14,13 +14,13 @@ function generateOTP(): string {
   return crypto.randomInt(100000, 1000000).toString();
 }
 
-// REGISTER ENDPOINT
+// REGISTER ENDPOINT (Supports both passwordless web and password-based mobile)
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { fullName, email } = req.body;
+    const { fullName, username, email, password, confirmPassword } = req.body;
 
     if (!fullName || !email) {
-      res.status(400).json({ error: 'All fields are required' });
+      res.status(400).json({ error: 'Full name and email are required' });
       return;
     }
 
@@ -33,7 +33,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check resend and lockout limits if there is an existing OTP
     const existingOtp = db.getOTPByEmail(emailTrimmed);
     if (existingOtp) {
       // Lockout check
@@ -50,6 +49,49 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Determine registration mode: if username or password is provided, we use the Mobile/Password mode.
+    const isPasswordMode = !!(username || password || confirmPassword);
+
+    if (isPasswordMode) {
+      if (!username || !password || !confirmPassword) {
+        res.status(400).json({ error: 'All fields (full name, username, email, password, confirm password) are required for password registration' });
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        res.status(400).json({ error: 'Passwords do not match' });
+        return;
+      }
+
+      if (password.length < 6) {
+        res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return;
+      }
+
+      const existingUsername = db.findUserByUsername(username.toLowerCase().trim());
+      if (existingUsername) {
+        res.status(400).json({ error: 'Username is already taken' });
+        return;
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+
+      // Create the user immediately (with emailVerified: false)
+      db.createUser({
+        fullName: fullName.trim(),
+        username: username.toLowerCase().trim(),
+        email: emailTrimmed,
+        passwordHash,
+        bio: 'Hey there! I am using DoTalk.',
+        profilePhoto: `https://api.dicebear.com/7.x/adventurer/svg?seed=${username.toLowerCase().trim()}`,
+        lastSeen: new Date().toISOString(),
+        onlineStatus: 'offline',
+        emailVerified: false,
+        blockedUsers: [],
+      });
+    }
+
     // Generate custom 6 digit OTP
     const otpCode = generateOTP();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
@@ -57,7 +99,16 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     // Save hashed OTP in temporary DB
     const otpSalt = await bcrypt.genSalt(10);
     const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
-    db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, fullName.trim());
+    
+    // For passwordless mode, we save pendingName. For password mode, we don't need it.
+    db.createOTP(
+      emailTrimmed,
+      hashedOtp,
+      expiresAt,
+      new Date().toISOString(),
+      undefined,
+      isPasswordMode ? undefined : fullName.trim()
+    );
 
     // Real Email Delivery with retry and logging
     let sent = false;
@@ -78,65 +129,149 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// LOGIN ENDPOINT (Request OTP for Login)
+// LOGIN ENDPOINT (Supports both passwordless web and password-based mobile)
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email } = req.body;
+    const { email, emailOrUsername, password } = req.body;
 
-    if (!email) {
-      res.status(400).json({ error: 'Email address is required' });
-      return;
-    }
+    // Determine login mode: if password is provided, we use the Mobile/Password mode.
+    const isPasswordMode = !!password;
 
-    const emailTrimmed = email.toLowerCase().trim();
-
-    // Check if user exists
-    const user = db.findUserByEmail(emailTrimmed);
-    if (!user) {
-      res.status(404).json({ error: 'No account found with this email. Please sign up.' });
-      return;
-    }
-
-    // Check resend and lockout limits
-    const existingOtp = db.getOTPByEmail(emailTrimmed);
-    if (existingOtp) {
-      // Lockout check
-      if (existingOtp.lockoutUntil && new Date(existingOtp.lockoutUntil).getTime() > Date.now()) {
-        const resetMinutes = Math.ceil((new Date(existingOtp.lockoutUntil).getTime() - Date.now()) / 1000 / 60);
-        res.status(429).json({ error: `Too many failed attempts. Suspended. Try again in ${resetMinutes} minute(s).` });
+    if (isPasswordMode) {
+      const loginIdentity = emailOrUsername || email;
+      if (!loginIdentity) {
+        res.status(400).json({ error: 'Email/Username and password are required' });
         return;
       }
-      // Rate limiting resend requests (60 seconds)
-      if (existingOtp.lastSentAt && (Date.now() - new Date(existingOtp.lastSentAt).getTime() < 60000)) {
-        const waitSeconds = Math.ceil((60000 - (Date.now() - new Date(existingOtp.lastSentAt).getTime())) / 1000);
-        res.status(429).json({ error: `Please wait ${waitSeconds} seconds before requesting a new code.` });
+
+      const loginTrimmed = loginIdentity.toLowerCase().trim();
+      const user = loginTrimmed.includes('@')
+        ? db.findUserByEmail(loginTrimmed)
+        : db.findUserByUsername(loginTrimmed);
+
+      if (!user) {
+        res.status(400).json({ error: 'Invalid credentials' });
         return;
       }
-    }
 
-    // Generate custom 6 digit OTP
-    const otpCode = generateOTP();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!isMatch) {
+        res.status(400).json({ error: 'Invalid credentials' });
+        return;
+      }
 
-    // Save hashed OTP in temporary DB
-    const otpSalt = await bcrypt.genSalt(10);
-    const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
-    db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString());
+      if (!user.emailVerified) {
+        const otpCode = generateOTP();
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiration
+        const otpSalt = await bcrypt.genSalt(10);
+        const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
+        db.createOTP(user.email, hashedOtp, expiresAt);
 
-    // Real Email Delivery with retry and logging
-    let sent = false;
-    try {
-      sent = await sendOTPEmail(emailTrimmed, otpCode);
-    } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error]', mailError);
-      res.status(500).json({ error: `Failed to deliver the verification email: ${mailError.message}` });
+        try {
+          await sendOTPEmail(user.email.toLowerCase().trim(), otpCode);
+        } catch (mailError) {
+          console.error('[DoTalk Mailer Error]', mailError);
+        }
+
+        res.status(403).json({
+          error: 'Please verify your email first',
+          emailVerified: false,
+          email: user.email
+        });
+        return;
+      }
+
+      db.updateUser(user._id, { onlineStatus: 'online' });
+
+      // Join standard starter chats
+      const starterChats = ['chat_larry', 'chat_natalie', 'chat_jennifer', 'chat_group_ux'];
+      starterChats.forEach(chatId => {
+        const chat = db.getChatById(chatId);
+        if (chat && !chat.participants.includes(user._id)) {
+          chat.participants.push(user._id);
+          chat.participants = chat.participants.filter(p => p !== 'user_johnny_test_id');
+          db.save();
+        }
+      });
+
+      const payload = { userId: user._id, username: user.username };
+      const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '1d' });
+      const refreshToken = jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '30d' });
+
+      res.status(200).json({
+        message: 'Login successful!',
+        accessToken,
+        refreshToken,
+        user: {
+          _id: user._id,
+          fullName: user.fullName,
+          username: user.username,
+          email: user.email,
+          bio: user.bio,
+          profilePhoto: user.profilePhoto,
+          onlineStatus: 'online',
+          emailVerified: user.emailVerified
+        }
+      });
       return;
-    }
+    } else {
+      // Passwordless mode
+      const loginEmail = email || emailOrUsername;
+      if (!loginEmail) {
+        res.status(400).json({ error: 'Email address is required' });
+        return;
+      }
 
-    res.status(200).json({
-      message: 'Verification code has been sent to your email.',
-      email: emailTrimmed
-    });
+      const emailTrimmed = loginEmail.toLowerCase().trim();
+
+      // Check if user exists
+      const user = db.findUserByEmail(emailTrimmed);
+      if (!user) {
+        res.status(404).json({ error: 'No account found with this email. Please sign up.' });
+        return;
+      }
+
+      // Check resend and lockout limits
+      const existingOtp = db.getOTPByEmail(emailTrimmed);
+      if (existingOtp) {
+        // Lockout check
+        if (existingOtp.lockoutUntil && new Date(existingOtp.lockoutUntil).getTime() > Date.now()) {
+          const resetMinutes = Math.ceil((new Date(existingOtp.lockoutUntil).getTime() - Date.now()) / 1000 / 60);
+          res.status(429).json({ error: `Too many failed attempts. Suspended. Try again in ${resetMinutes} minute(s).` });
+          return;
+        }
+        // Rate limiting resend requests (60 seconds)
+        if (existingOtp.lastSentAt && (Date.now() - new Date(existingOtp.lastSentAt).getTime() < 60000)) {
+          const waitSeconds = Math.ceil((60000 - (Date.now() - new Date(existingOtp.lastSentAt).getTime())) / 1000);
+          res.status(429).json({ error: `Please wait ${waitSeconds} seconds before requesting a new code.` });
+          return;
+        }
+      }
+
+      // Generate custom 6 digit OTP
+      const otpCode = generateOTP();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
+
+      // Save hashed OTP in temporary DB
+      const otpSalt = await bcrypt.genSalt(10);
+      const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
+      db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString());
+
+      // Real Email Delivery with retry and logging
+      let sent = false;
+      try {
+        sent = await sendOTPEmail(emailTrimmed, otpCode);
+      } catch (mailError: any) {
+        console.error('[DoTalk Mailer Error]', mailError);
+        res.status(500).json({ error: `Failed to deliver the verification email: ${mailError.message}` });
+        return;
+      }
+
+      res.status(200).json({
+        message: 'Verification code has been sent to your email.',
+        email: emailTrimmed
+      });
+    }
   } catch (error: any) {
     res.status(500).json({ error: 'Server error: ' + error.message });
   }
@@ -178,7 +313,7 @@ router.post('/verify-otp', async (req: Request, res: Response): Promise<void> =>
     if (!isMatch) {
       savedOtp.attempts += 1;
       
-      // Look out user after 5 failed attempts
+      // Lockout user after 5 failed attempts
       if (savedOtp.attempts >= 5) {
         const lockoutTime = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes lockout
         savedOtp.lockoutUntil = lockoutTime.toISOString();
@@ -199,7 +334,7 @@ router.post('/verify-otp', async (req: Request, res: Response): Promise<void> =>
     let user = db.findUserByEmail(emailTrimmed);
 
     if (!user) {
-      // Registration flow (create account post successful verification)
+      // Registration flow (create account post successful verification - Web / Passwordless style)
       if (!savedOtp.pendingName) {
         res.status(400).json({ error: 'Registration state is missing. Please sign up again.' });
         return;
@@ -235,7 +370,7 @@ router.post('/verify-otp', async (req: Request, res: Response): Promise<void> =>
         blockedUsers: [],
       });
     } else {
-      // Login flow
+      // Login flow or Mobile/Password registration verification
       db.updateUser(user._id, { onlineStatus: 'online', emailVerified: true });
     }
 
@@ -244,6 +379,17 @@ router.post('/verify-otp', async (req: Request, res: Response): Promise<void> =>
     savedOtp.attempts = 0;
     savedOtp.lockoutUntil = undefined;
     db.save();
+
+    // Auto join starter chats
+    const starterChats = ['chat_larry', 'chat_natalie', 'chat_jennifer', 'chat_group_ux'];
+    starterChats.forEach(chatId => {
+      const chat = db.getChatById(chatId);
+      if (chat && !chat.participants.includes(user!._id)) {
+        chat.participants.push(user!._id);
+        chat.participants = chat.participants.filter(p => p !== 'user_johnny_test_id');
+        db.save();
+      }
+    });
 
     // Generate JWT tokens
     const payload = { userId: user._id, username: user.username };
@@ -348,4 +494,3 @@ router.post('/refresh', (req: Request, res: Response): void => {
 });
 
 export default router;
-
