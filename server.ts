@@ -28,8 +28,8 @@ async function startServer() {
   const app = express();
 
   // High-priority, zero-overhead healthcheck route for hosting platforms (like Railway)
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', serverTime: new Date().toISOString() });
+  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
+    res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
   });
 
   app.use(cors());

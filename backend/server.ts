@@ -15,10 +15,7 @@ import statusRouter from './routes/status.routes.js';
 
 // Port 3000 is hardcoded as the only externally accessible port in the AI Studio environment.
 // For staging and production platforms (e.g. Railway, Render, Cloud Run), we resolve the variable port cleanly.
-let PORT = 3000;
-if (process.env.PORT && (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL || process.env.RENDER || process.env.NODE_ENV === 'production')) {
-  PORT = Number(process.env.PORT);
-}
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
@@ -234,11 +231,11 @@ async function startServer() {
   });
 
   app.get('/', (req, res) => {
-    res.send('API is running');
+    res.status(200).send('API is running');
   });
 
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', serverTime: new Date().toISOString() });
+  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
+    res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
   });
 
   app.use('/api/auth', authRouter);
