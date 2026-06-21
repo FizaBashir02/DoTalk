@@ -26,6 +26,12 @@ async function startServer() {
   });
 
   const app = express();
+
+  // High-priority, zero-overhead healthcheck route for hosting platforms (like Railway)
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', serverTime: new Date().toISOString() });
+  });
+
   app.use(cors());
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ limit: '100mb', extended: true }));
@@ -309,9 +315,6 @@ async function startServer() {
 
   // REST API Routes Config
   app.set('io', io);
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', serverTime: new Date().toISOString() });
-  });
 
   app.use('/api/auth', authRouter);
   app.use('/api/profile', profileRouter);
