@@ -170,12 +170,12 @@ class DatabaseManager {
       const isValidScheme = envUri && (envUri.trim().startsWith('mongodb://') || envUri.trim().startsWith('mongodb+srv://'));
       
       if (!isValidScheme) {
-        const missingOrInvalid = !envUri ? "missing" : "invalid scheme";
-        console.error('================================================================');
-        console.error(`[DoTalk Multi-Mode DB] ERROR: MONGODB_URI is ${missingOrInvalid}.`);
-        console.error(`[DoTalk Multi-Mode DB] Expected a valid "mongodb://" or "mongodb+srv://" URI under Secrets.`);
-        console.error(`[DoTalk Multi-Mode DB] Defaulting to active local database storage framework.`);
-        console.error('================================================================');
+        const missingOrInvalid = !envUri ? "missing" : "using an offline scheme";
+        console.log('================================================================');
+        console.log(`[DoTalk Multi-Mode DB] Status: MONGODB_URI is ${missingOrInvalid}.`);
+        console.log(`[DoTalk Multi-Mode DB] Expected a valid "mongodb://" or "mongodb+srv://" URI under Secrets.`);
+        console.log(`[DoTalk Multi-Mode DB] Defaulting to active local database storage framework.`);
+        console.log('================================================================');
         return;
       }
 
