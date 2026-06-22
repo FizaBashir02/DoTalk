@@ -16,11 +16,11 @@ export interface EmailDeliveryResult {
  * Validates the email configuration BEFORE attempting to send any email.
  */
 export function validateEmailConfig(): { provider: 'SMTP' } {
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpPort = process.env.SMTP_PORT;
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const smtpPort = process.env.SMTP_PORT || '587';
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM;
+  const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
   const missingParts: string[] = [];
   if (!smtpHost) missingParts.push('SMTP_HOST');
@@ -66,14 +66,15 @@ export async function sendVerificationEmail(
   // 2. Validate email recipient address
   const recipientEmail = validateEmailAddress(email);
 
-  const smtpHost = process.env.SMTP_HOST!;
-  const smtpPort = parseInt(process.env.SMTP_PORT!, 10);
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
   const smtpUser = process.env.SMTP_USER!;
   const smtpPass = process.env.SMTP_PASS!;
-  const smtpFrom = process.env.SMTP_FROM!;
-  const smtpSecure = process.env.SMTP_SECURE === 'true';
+  const smtpFrom = process.env.SMTP_FROM || smtpUser;
+  // If SMTP_SECURE is explicitly "true", use secure connection. Otherwise, if port is 465, use secure. Otherwise false (e.g. for 587 STARTTLS).
+  const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
 
-  console.log(`[Email Service] Attempting to deliver live registration OTP to ${recipientEmail} via SMTP Server: ${smtpHost}:${smtpPort}`);
+  console.log(`[Email Service] SMTP Delivery Attempt: Sending verification code ${otpCode} to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure})`);
 
   const subjectText = 'Your DoTalk Verification Code';
   const plainText = `Hello,\n\nYour DoTalk verification code is:\n\n${otpCode}\n\nThis code expires in ${expiresMinutes} minutes.\n\nIf you did not request this, please ignore this email.`;
@@ -114,7 +115,7 @@ export async function sendVerificationEmail(
 
   try {
     const info = await transporter.sendMail({
-      from: smtpFrom,
+      from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
       to: recipientEmail,
       subject: subjectText,
       text: plainText,
@@ -129,7 +130,66 @@ export async function sendVerificationEmail(
     };
   } catch (err: any) {
     console.error(`[Email Service SMTP Error] Failed to send email to ${recipientEmail}: ${err.message}`);
+    console.error(`[Email Service SMTP Diagnostics] Host: ${smtpHost} | Port: ${smtpPort} | Secure: ${smtpSecure} | User: ${smtpUser}`);
     throw new Error(`SMTP sending failed: ${err.message}`);
+  }
+}
+
+/**
+ * Sends a general high-reliability test email (useful for dev verification)
+ */
+export async function sendTestEmail(recipientEmail: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    validateEmailConfig();
+    const cleanIn = validateEmailAddress(recipientEmail);
+    const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
+    const smtpUser = process.env.SMTP_USER!;
+    const smtpPass = process.env.SMTP_PASS!;
+    const smtpFrom = process.env.SMTP_FROM || smtpUser;
+    const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      family: 4,
+      lookup: (hostname, options, callback) => {
+        dns.lookup(hostname, Object.assign({}, options, { family: 4 }), callback);
+      }
+    } as any);
+
+    const info = await transporter.sendMail({
+      from: `SMTP Test <${smtpFrom}>`,
+      to: cleanIn,
+      subject: 'SMTP Integration Connection Test Successful ✅',
+      text: `Hello,\n\nYour SMTP email delivery integration works perfectly on Railway with forced IPv4!`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; padding: 20px; border: 1px solid #10b981; border-radius: 8px; background-color: #ecfdf5;">
+          <h2 style="color: #065f46; margin-top: 0;">SMTP Test Successful 🎉</h2>
+          <p style="color: #047857;">Your Node.js background mail delivery is successfully configured and working on Railway.</p>
+          <hr style="border: 0; border-top: 1px solid #a7f3d0; margin: 15px 0;" />
+          <ul style="font-size: 13px; color: #065f46; padding-left: 20px;">
+            <li><strong>SMTP Server:</strong> ${smtpHost}:${smtpPort}</li>
+            <li><strong>Forced IPv4:</strong> Enabled (family 4)</li>
+            <li><strong>TLS Secure Connection:</strong> ${smtpSecure}</li>
+            <li><strong>Authenticating Account:</strong> ${smtpUser}</li>
+          </ul>
+        </div>
+      `
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (err: any) {
+    console.error(`[Email Service Test SMTP Error] Delivery failed:`, err);
+    return { success: false, error: err.message };
   }
 }
 

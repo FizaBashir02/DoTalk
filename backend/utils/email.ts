@@ -1,3 +1,3 @@
-import { sendVerificationEmail, sendOTPEmail } from '../src/services/emailService.js';
+import { sendVerificationEmail, sendOTPEmail, sendTestEmail } from '../src/services/emailService.js';
 
-export { sendVerificationEmail, sendOTPEmail };
+export { sendVerificationEmail, sendOTPEmail, sendTestEmail };

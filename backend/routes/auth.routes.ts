@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { db } from '../utils/db.js';
-import { sendOTPEmail } from '../utils/email.js';
+import { sendOTPEmail, sendTestEmail } from '../utils/email.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dotalk_secret_access_key';
@@ -480,6 +480,44 @@ router.post('/refresh', (req: Request, res: Response): void => {
     res.status(200).json({ accessToken });
   } catch (err) {
     res.status(403).json({ error: 'Invalid refresh token' });
+  }
+});
+
+// SECURE SMTP CONNECTION & EMAIL DELIVERY TEST ENDPOINT
+router.post('/test-email', async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body;
+  if (!email) {
+    res.status(400).json({ error: 'Recipient email address is required' });
+    return;
+  }
+
+  try {
+    console.log(`[DoTalk SMTP Test] Initiating SMTP connection check to: ${email}`);
+    const result = await sendTestEmail(email);
+    if (result.success) {
+      res.status(200).json({
+        success: true,
+        message: `Test email successfully sent to ${email}`,
+        messageId: result.messageId
+      });
+    } else {
+      res.status(502).json({
+        success: false,
+        error: `SMTP server error: ${result.error}`,
+        diagnostics: {
+          SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
+          SMTP_PORT: process.env.SMTP_PORT || '587',
+          SMTP_USER: process.env.SMTP_USER,
+          SMTP_SECURE: process.env.SMTP_SECURE || 'false',
+          FORCE_IPV4: true
+        }
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: `Server failed to complete SMTP test: ${error.message}`
+    });
   }
 });
 
