@@ -116,19 +116,10 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
     console.log(`================================================================\n`);
 
-    // Real Email Delivery with retry and logging
-    let sent = false;
-    try {
-      sent = await sendOTPEmail(emailTrimmed, otpCode);
-    } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error] SMTP delivery failed, but OTP remains active in memory database as fallback.', mailError);
-      res.status(500).json({ 
-        error: `Failed to deliver the verification email: ${mailError.message}`, 
-        emailTrimmed: emailTrimmed,
-        details: 'You can check server logs/console for the OTP code if running in development mode.'
-      });
-      return;
-    }
+    // Real Email Delivery in background (non-blocking) so registration never hangs and returns immediately
+    sendOTPEmail(emailTrimmed, otpCode).catch((mailError: any) => {
+      console.error('[DoTalk Mailer Error] SMTP background delivery failed.', mailError);
+    });
 
     res.status(200).json({
       message: 'Verification code has been sent to your email.',
@@ -177,11 +168,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
         db.createOTP(user.email, hashedOtp, expiresAt);
 
-        try {
-          await sendOTPEmail(user.email.toLowerCase().trim(), otpCode);
-        } catch (mailError) {
-          console.error('[DoTalk Mailer Error]', mailError);
-        }
+        // Real Email Delivery in background (non-blocking) so login never hangs
+        sendOTPEmail(user.email.toLowerCase().trim(), otpCode).catch((mailError: any) => {
+          console.error('[DoTalk Mailer Error] SMTP login background delivery failed.', mailError);
+        });
 
         res.status(403).json({
           error: 'Please verify your email first',
@@ -267,15 +257,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
       db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString());
 
-      // Real Email Delivery with retry and logging
-      let sent = false;
-      try {
-        sent = await sendOTPEmail(emailTrimmed, otpCode);
-      } catch (mailError: any) {
-        console.error('[DoTalk Mailer Error]', mailError);
-        res.status(500).json({ error: `Failed to deliver the verification email: ${mailError.message}` });
-        return;
-      }
+      // Real Email Delivery in background (non-blocking) so OTP resend never hangs
+      sendOTPEmail(emailTrimmed, otpCode).catch((mailError: any) => {
+        console.error('[DoTalk Mailer Error] SMTP resend background delivery failed.', mailError);
+      });
 
       res.status(200).json({
         message: 'Verification code has been sent to your email.',
@@ -464,15 +449,10 @@ router.post('/resend-otp', async (req: Request, res: Response): Promise<void> =>
     // Save new OTP keeping pending name intact if exists
     db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, existingOtp?.pendingName);
 
-    // Real Email Delivery with retry and logging
-    let sent = false;
-    try {
-      sent = await sendOTPEmail(emailTrimmed, otpCode);
-    } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error]', mailError);
-      res.status(500).json({ error: `Failed to deliver the verification email: ${mailError.message}` });
-      return;
-    }
+    // Real Email Delivery in background (non-blocking) so forgot password never hangs
+    sendOTPEmail(emailTrimmed, otpCode).catch((mailError: any) => {
+      console.error('[DoTalk Mailer Error] SMTP forgot password background delivery failed.', mailError);
+    });
 
     res.status(200).json({
       message: 'Verification code has been sent to your email.'

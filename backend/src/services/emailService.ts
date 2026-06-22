@@ -106,6 +106,7 @@ export async function sendVerificationEmail(
     tls: {
       rejectUnauthorized: false
     },
+    family: 4, // Force connection to use IPv4
     lookup: (hostname, options, callback) => {
       dns.lookup(hostname, Object.assign({}, options, { family: 4 }), callback);
     }
