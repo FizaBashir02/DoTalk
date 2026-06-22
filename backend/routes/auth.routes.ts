@@ -110,13 +110,23 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       isPasswordMode ? undefined : fullName.trim()
     );
 
+    // Print generated OTP code to server log as a diagnostic developer fallback
+    console.log(`\n================================================================`);
+    console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
+    console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
+    console.log(`================================================================\n`);
+
     // Real Email Delivery with retry and logging
     let sent = false;
     try {
       sent = await sendOTPEmail(emailTrimmed, otpCode);
     } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error]', mailError);
-      res.status(500).json({ error: `Failed to deliver the verification email: ${mailError.message}` });
+      console.error('[DoTalk Mailer Error] SMTP delivery failed, but OTP remains active in memory database as fallback.', mailError);
+      res.status(500).json({ 
+        error: `Failed to deliver the verification email: ${mailError.message}`, 
+        emailTrimmed: emailTrimmed,
+        details: 'You can check server logs/console for the OTP code if running in development mode.'
+      });
       return;
     }
 

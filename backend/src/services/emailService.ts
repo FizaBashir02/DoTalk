@@ -1,4 +1,10 @@
 import nodemailer from 'nodemailer';
+import dns from 'dns';
+
+// Ensure DNS lookup prefers IPv4 globally to circumvent ENETUNREACH IPv6 routing errors on platforms like Railway
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 export interface EmailDeliveryResult {
   success: boolean;
@@ -99,8 +105,11 @@ export async function sendVerificationEmail(
     },
     tls: {
       rejectUnauthorized: false
+    },
+    lookup: (hostname, options, callback) => {
+      dns.lookup(hostname, Object.assign({}, options, { family: 4 }), callback);
     }
-  });
+  } as any);
 
   try {
     const info = await transporter.sendMail({

@@ -3,7 +3,13 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
+import dns from 'dns';
 import { Server } from 'socket.io';
+
+// Configure Node.js globally to prioritize IPv4 address resolution to prevent ENETUNREACH SMTP failures on systems without stable IPv6 routing
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/utils/db.js';
 
