@@ -1,9 +1,10 @@
 {
   "appId": "com.dotalk.app",
   "appName": "DoTalk",
-  "webDir": "dist",
+  "webDir": "../dist",
   "server": {
     "androidScheme": "https",
-    "cleartext": true
+    "url": "https://dotalk-production.up.railway.app/",
+    "cleartext": false
   }
 }

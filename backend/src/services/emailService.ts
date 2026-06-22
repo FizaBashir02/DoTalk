@@ -100,6 +100,7 @@ export async function sendVerificationEmail(
     host: smtpHost,
     port: smtpPort,
     secure: smtpSecure,
+    requireTLS: smtpPort === 587,
     auth: {
       user: smtpUser,
       pass: smtpPass
@@ -107,10 +108,7 @@ export async function sendVerificationEmail(
     tls: {
       rejectUnauthorized: false
     },
-    family: 4, // Force connection to use IPv4
-    lookup: (hostname, options, callback) => {
-      dns.lookup(hostname, Object.assign({}, options, { family: 4 }), callback);
-    }
+    family: 4 // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
   } as any);
 
   try {
@@ -153,6 +151,7 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       host: smtpHost,
       port: smtpPort,
       secure: smtpSecure,
+      requireTLS: smtpPort === 587,
       auth: {
         user: smtpUser,
         pass: smtpPass
@@ -160,10 +159,7 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       tls: {
         rejectUnauthorized: false
       },
-      family: 4,
-      lookup: (hostname, options, callback) => {
-        dns.lookup(hostname, Object.assign({}, options, { family: 4 }), callback);
-      }
+      family: 4 // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
     } as any);
 
     const info = await transporter.sendMail({

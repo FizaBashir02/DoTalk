@@ -11,6 +11,7 @@ export interface IOTP extends Document {
 
 const OTPSchema = new Schema<IOTP>(
   {
+    _id: { type: String, required: true } as any,
     email: { type: String, required: true, index: true },
     codeHash: { type: String, required: true },
     expiresAt: { type: Date, required: true },

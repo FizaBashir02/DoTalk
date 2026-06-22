@@ -25,6 +25,7 @@ export interface IChat extends Document {
 
 const ChatSchema = new Schema<IChat>(
   {
+    _id: { type: String, required: true } as any,
     participants: [{ type: String, required: true, index: true }],
     isGroup: { type: Boolean, default: false },
     groupName: { type: String, default: '' },

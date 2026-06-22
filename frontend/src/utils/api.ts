@@ -13,20 +13,8 @@ export function getBackendUrl(): string {
     return envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
   }
 
-  // 2. Route production builds and Vercel deployments directly to the live Railway API gateway
-  if (
-    meta.env?.PROD || 
-    (typeof window !== 'undefined' && (
-      window.location.hostname.includes('vercel.app') || 
-      window.location.hostname.includes('amplifyapp.com') ||
-      window.location.hostname.includes('netlify.app')
-    ))
-  ) {
-    return 'https://dotalk-production.up.railway.app';
-  }
-
-  // 3. Fall back to local same-origin routing in development
-  return window.location.origin;
+  // 2. Route always to the live Railway API gateway for production/mobile fallback
+  return 'https://dotalk-production.up.railway.app';
 }
 
 // Global fetch wrapper with automatic Authorization token inject

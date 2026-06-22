@@ -30,6 +30,7 @@ const ReactionSchema = new Schema<IReaction>({
 
 const MessageSchema = new Schema<IMessage>(
   {
+    _id: { type: String, required: true } as any,
     chatId: { type: String, required: true, index: true },
     senderId: { type: String, required: true, index: true },
     text: { type: String, default: '' },
