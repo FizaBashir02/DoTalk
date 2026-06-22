@@ -1,75 +1,10 @@
 import nodemailer from 'nodemailer';
 import dns from 'dns';
-import net from 'net';
-import tls from 'tls';
 
 // Ensure DNS lookup prefers IPv4 globally to circumvent ENETUNREACH IPv6 routing errors on platforms like Railway
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
-
-// Securely patch Node's dns.lookup globally to force IPv4 (family: 4) resolution for all TCP/SMTP connections
-const originalLookup = dns.lookup;
-// @ts-ignore
-dns.lookup = function (hostname, options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-  if (typeof options === 'number') {
-    options = { family: options };
-  } else if (!options) {
-    options = {};
-  }
-  options.family = 4;
-  return originalLookup.call(dns, hostname, options, callback);
-};
-
-// Also patch the promises lookup
-const originalPromisesLookup = dns.promises.lookup;
-dns.promises.lookup = function (hostname, options) {
-  let opts = options;
-  if (typeof options === 'number') {
-    opts = { family: options };
-  } else if (!options) {
-    opts = {};
-  } else if (typeof options === 'object') {
-    opts = { ...options };
-  }
-  opts.family = 4;
-  return originalPromisesLookup.call(dns.promises, hostname, opts);
-} as any;
-
-// Force IPv4 globally for all outbound TCP connections in mail delivery context
-const originalNetConnect = net.connect;
-// @ts-ignore
-net.connect = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalNetConnect.apply(this, [options, ...rest]);
-};
-
-const originalNetCreateConnection = net.createConnection;
-// @ts-ignore
-net.createConnection = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalNetCreateConnection.apply(this, [options, ...rest]);
-};
-
-const originalTlsConnect = tls.connect;
-// @ts-ignore
-tls.connect = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalTlsConnect.apply(this, [options, ...rest]);
-};
 
 export interface EmailDeliveryResult {
   success: boolean;
@@ -118,7 +53,34 @@ export function validateEmailAddress(email: string): string {
 }
 
 /**
- * Sends a secure, production-ready verification code OTP to user email
+ * Helper to build high-compatibility Nodemailer transport with forced IPv4
+ */
+function createSmtpTransporter(host: string, port: number, secure: boolean, user: string, pass: string) {
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    requireTLS: port === 587,
+    auth: {
+      user,
+      pass
+    },
+    tls: {
+      rejectUnauthorized: false
+    },
+    connectionTimeout: 10000, // 10 seconds timeout
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+    family: 4, // Natively direct nodemailer to prefer IPv4 sockets
+    // Localized DNS lookup overrides for this SMTP connection ONLY - leaves other services untouched and clean!
+    lookup: (hostname: string, options: any, callback: any) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    }
+  } as any);
+}
+
+/**
+ * Sends a secure, production-ready verification code OTP to user email with dynamic dual-port fallback resilience
  */
 export async function sendVerificationEmail(
   email: string,
@@ -138,8 +100,6 @@ export async function sendVerificationEmail(
   const smtpFrom = process.env.SMTP_FROM || smtpUser;
   // If SMTP_SECURE is explicitly "true", use secure connection. Otherwise, if port is 465, use secure. Otherwise false (e.g. for 587 STARTTLS).
   const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
-
-  console.log(`[Email Service] SMTP Delivery Attempt: Sending verification code ${otpCode} to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure})`);
 
   const subjectText = 'Your DoTalk Verification Code';
   const plainText = `Hello,\n\nYour DoTalk verification code is:\n\n${otpCode}\n\nThis code expires in ${expiresMinutes} minutes.\n\nIf you did not request this, please ignore this email.`;
@@ -161,25 +121,11 @@ export async function sendVerificationEmail(
     </div>
   `;
 
-  const transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpSecure,
-    requireTLS: smtpPort === 587,
-    auth: {
-      user: smtpUser,
-      pass: smtpPass
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    family: 4, // Explicitly force IPv4 connections
-    lookup: (hostname: string, options: any, callback: any) => {
-      dns.lookup(hostname, { family: 4 }, callback);
-    }
-  } as any);
+  console.log(`[Email Service] SMTP SMTP Attempt: Sending verification code to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure})`);
 
+  // Attempt 1: primary configuration
   try {
+    const transporter = createSmtpTransporter(smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
     const info = await transporter.sendMail({
       from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
       to: recipientEmail,
@@ -188,21 +134,49 @@ export async function sendVerificationEmail(
       html: htmlBody
     });
 
-    console.log(`[Email Service Success] Successfully delivered message to ${recipientEmail} (ID: ${info.messageId})`);
+    console.log(`[Email Service Success] Successfully delivered message to ${recipientEmail} on main port ${smtpPort} (ID: ${info.messageId})`);
     return {
       success: true,
       provider: 'SMTP',
       messageId: info.messageId
     };
-  } catch (err: any) {
-    console.error(`[Email Service SMTP Error] Failed to send email to ${recipientEmail}: ${err.message}`);
-    console.error(`[Email Service SMTP Diagnostics] Host: ${smtpHost} | Port: ${smtpPort} | Secure: ${smtpSecure} | User: ${smtpUser}`);
-    throw new Error(`SMTP sending failed: ${err.message}`);
+  } catch (primaryErr: any) {
+    console.warn(`[Email Service SMTP Warning] Main delivery attempt on port ${smtpPort} failed: ${primaryErr.message}`);
+    
+    // Fallback: If port 465 failed, try port 587 (STARTTLS). If port 587 failed, try port 465.
+    const fallbackPort = smtpPort === 465 ? 587 : 465;
+    const fallbackSecure = fallbackPort === 465;
+    
+    console.log(`[Email Service Fallback] Initiating automated fallback SMTP attempt to <${recipientEmail}> via ${smtpHost}:${fallbackPort} (Secure: ${fallbackSecure})`);
+    
+    try {
+      const fallbackTransporter = createSmtpTransporter(smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
+      const info = await fallbackTransporter.sendMail({
+        from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
+        to: recipientEmail,
+        subject: subjectText,
+        text: plainText,
+        html: htmlBody
+      });
+      
+      console.log(`[Email Service Success] Fallback delivered message perfectly to ${recipientEmail} on port ${fallbackPort}! (ID: ${info.messageId})`);
+      return {
+        success: true,
+        provider: 'SMTP',
+        messageId: info.messageId
+      };
+    } catch (fallbackErr: any) {
+      console.error(`[Email Service SMTP Error] Both primary port ${smtpPort} and fallback port ${fallbackPort} failed!`);
+      console.error(`  - Primary Error: ${primaryErr.message}`);
+      console.error(`  - Fallback Error: ${fallbackErr.message}`);
+      console.error(`[Email Service SMTP Diagnostics] Host: ${smtpHost} | User: ${smtpUser}`);
+      throw new Error(`SMTP sending failed: ${primaryErr.message} (Fallback failed: ${fallbackErr.message})`);
+    }
   }
 }
 
 /**
- * Sends a general high-reliability test email (useful for dev verification)
+ * Sends a general high-reliability test email (useful for dev verification) with dynamic dual-port fallback resilience
  */
 export async function sendTestEmail(recipientEmail: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
@@ -215,47 +189,49 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
     const smtpFrom = process.env.SMTP_FROM || smtpUser;
     const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
 
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      requireTLS: smtpPort === 587,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      family: 4, // Explicitly force IPv4 connections
-      lookup: (hostname: string, options: any, callback: any) => {
-        dns.lookup(hostname, { family: 4 }, callback);
-      }
-    } as any);
+    const subject = 'SMTP Integration Connection Test Successful ✅';
+    const text = `Hello,\n\nYour SMTP email delivery integration works perfectly with dynamic dual-port fallback and forced IPv4!`;
+    const getHtml = (activePort: number, activeSecure: boolean) => `
+      <div style="font-family: sans-serif; max-width: 500px; padding: 20px; border: 1px solid #10b981; border-radius: 8px; background-color: #ecfdf5;">
+        <h2 style="color: #065f46; margin-top: 0;">SMTP Test Successful 🎉</h2>
+        <p style="color: #047857;">Your Node.js background mail delivery is successfully configured and working with high-availability fallback.</p>
+        <hr style="border: 0; border-top: 1px solid #a7f3d0; margin: 15px 0;" />
+        <ul style="font-size: 13px; color: #065f46; padding-left: 20px;">
+          <li><strong>SMTP Server:</strong> ${smtpHost}:${activePort}</li>
+          <li><strong>Forced IPv4:</strong> Enabled (family 4)</li>
+          <li><strong>TLS Secure Connection:</strong> ${activeSecure}</li>
+          <li><strong>Authenticating Account:</strong> ${smtpUser}</li>
+        </ul>
+      </div>
+    `;
 
-    const info = await transporter.sendMail({
-      from: `SMTP Test <${smtpFrom}>`,
-      to: cleanIn,
-      subject: 'SMTP Integration Connection Test Successful ✅',
-      text: `Hello,\n\nYour SMTP email delivery integration works perfectly on Railway with forced IPv4!`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 500px; padding: 20px; border: 1px solid #10b981; border-radius: 8px; background-color: #ecfdf5;">
-          <h2 style="color: #065f46; margin-top: 0;">SMTP Test Successful 🎉</h2>
-          <p style="color: #047857;">Your Node.js background mail delivery is successfully configured and working on Railway.</p>
-          <hr style="border: 0; border-top: 1px solid #a7f3d0; margin: 15px 0;" />
-          <ul style="font-size: 13px; color: #065f46; padding-left: 20px;">
-            <li><strong>SMTP Server:</strong> ${smtpHost}:${smtpPort}</li>
-            <li><strong>Forced IPv4:</strong> Enabled (family 4)</li>
-            <li><strong>TLS Secure Connection:</strong> ${smtpSecure}</li>
-            <li><strong>Authenticating Account:</strong> ${smtpUser}</li>
-          </ul>
-        </div>
-      `
-    });
+    try {
+      const transporter = createSmtpTransporter(smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
+      const info = await transporter.sendMail({
+        from: `SMTP Test <${smtpFrom}>`,
+        to: cleanIn,
+        subject,
+        text,
+        html: getHtml(smtpPort, smtpSecure)
+      });
+      return { success: true, messageId: info.messageId };
+    } catch (primaryErr: any) {
+      console.warn(`[Email Service Test SMTP Warning] Main attempt failed: ${primaryErr.message}. Trying fallback...`);
+      const fallbackPort = smtpPort === 465 ? 587 : 465;
+      const fallbackSecure = fallbackPort === 465;
 
-    return { success: true, messageId: info.messageId };
+      const fallbackTransporter = createSmtpTransporter(smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
+      const info = await fallbackTransporter.sendMail({
+        from: `SMTP Test <${smtpFrom}>`,
+        to: cleanIn,
+        subject,
+        text,
+        html: getHtml(fallbackPort, fallbackSecure)
+      });
+      return { success: true, messageId: info.messageId };
+    }
   } catch (err: any) {
-    console.error(`[Email Service Test SMTP Error] Delivery failed:`, err);
+    console.error(`[Email Service Test SMTP Error] Delivery failed on both primary and fallback ports:`, err);
     return { success: false, error: err.message };
   }
 }

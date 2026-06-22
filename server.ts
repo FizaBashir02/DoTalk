@@ -9,6 +9,7 @@ import tls from 'tls';
 import { Server } from 'socket.io';
 
 // Suppress the Vite CJS Node API deprecation warning cleanly
+process.env.VITE_CJS_IGNORE_WARNING = 'true';
 process.removeAllListeners('warning');
 process.on('warning', (warning) => {
   if (warning.name === 'DeprecationWarning' && warning.message.includes("Vite's Node API is deprecated")) {
@@ -22,69 +23,6 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-// Securely patch Node's dns.lookup globally to force IPv4 (family: 4) resolution for all TCP/SMTP connections
-const originalLookup = dns.lookup;
-// @ts-ignore
-dns.lookup = function (hostname, options, callback) {
-  if (typeof options === 'function') {
-    callback = options;
-    options = {};
-  }
-  if (typeof options === 'number') {
-    options = { family: options };
-  } else if (!options) {
-    options = {};
-  }
-  options.family = 4;
-  return originalLookup.call(dns, hostname, options, callback);
-};
-
-// Also patch the promises lookup
-const originalPromisesLookup = dns.promises.lookup;
-dns.promises.lookup = function (hostname, options) {
-  let opts = options;
-  if (typeof options === 'number') {
-    opts = { family: options };
-  } else if (!options) {
-    opts = {};
-  } else if (typeof options === 'object') {
-    opts = { ...options };
-  }
-  opts.family = 4;
-  return originalPromisesLookup.call(dns.promises, hostname, opts);
-} as any;
-
-// Force IPv4 globally for all outbound TCP connections
-const originalNetConnect = net.connect;
-// @ts-ignore
-net.connect = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalNetConnect.apply(this, [options, ...rest]);
-};
-
-const originalNetCreateConnection = net.createConnection;
-// @ts-ignore
-net.createConnection = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalNetCreateConnection.apply(this, [options, ...rest]);
-};
-
-const originalTlsConnect = tls.connect;
-// @ts-ignore
-tls.connect = function (...args) {
-  let [options, ...rest] = args;
-  if (typeof options === 'object' && options !== null) {
-    options.family = 4;
-  }
-  return originalTlsConnect.apply(this, [options, ...rest]);
-};
-
 import { db } from './server/utils/db.js';
 
 // Import local express routes
@@ -95,8 +33,7 @@ import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
 // Port 3000 is hardcoded as the only externally accessible port in the AI Studio environment.
-// For production environments (like Railway), we read the environment-provisioned PORT.
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const PORT = 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
