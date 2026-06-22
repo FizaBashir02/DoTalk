@@ -4,7 +4,18 @@ import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
 import dns from 'dns';
+import net from 'net';
+import tls from 'tls';
 import { Server } from 'socket.io';
+
+// Suppress the Vite CJS Node API deprecation warning cleanly
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'DeprecationWarning' && warning.message.includes("Vite's Node API is deprecated")) {
+    return; // Silently skip
+  }
+  console.warn(warning.stack || warning.message);
+});
 
 // Configure Node.js globally to prioritize IPv4 address resolution to prevent ENETUNREACH SMTP failures on systems without stable IPv6 routing
 if (typeof dns.setDefaultResultOrder === 'function') {
@@ -42,7 +53,38 @@ dns.promises.lookup = function (hostname, options) {
   opts.family = 4;
   return originalPromisesLookup.call(dns.promises, hostname, opts);
 } as any;
-import { createServer as createViteServer } from 'vite';
+
+// Force IPv4 globally for all outbound TCP connections
+const originalNetConnect = net.connect;
+// @ts-ignore
+net.connect = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalNetConnect.apply(this, [options, ...rest]);
+};
+
+const originalNetCreateConnection = net.createConnection;
+// @ts-ignore
+net.createConnection = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalNetCreateConnection.apply(this, [options, ...rest]);
+};
+
+const originalTlsConnect = tls.connect;
+// @ts-ignore
+tls.connect = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalTlsConnect.apply(this, [options, ...rest]);
+};
+
 import { db } from './server/utils/db.js';
 
 // Import local express routes
@@ -552,6 +594,7 @@ async function startServer() {
   }
 
   if (isDev) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       root: path.join(process.cwd(), 'frontend'),
       server: { middlewareMode: true },

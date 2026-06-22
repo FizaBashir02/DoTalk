@@ -183,7 +183,9 @@ class DatabaseManager {
         console.log(`[DoTalk Multi-Mode DB] Connecting to database...`);
         await mongoose.connect(envUri.trim(), {
           serverSelectionTimeoutMS: 5000,
-          connectTimeoutMS: 5000
+          connectTimeoutMS: 5000,
+          socketTimeoutMS: 45000,
+          heartbeatFrequencyMS: 10000,
         });
         this.isConnectedToMongo = true;
         console.log('================================================================');

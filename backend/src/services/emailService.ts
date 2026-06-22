@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 import dns from 'dns';
+import net from 'net';
+import tls from 'tls';
 
 // Ensure DNS lookup prefers IPv4 globally to circumvent ENETUNREACH IPv6 routing errors on platforms like Railway
 if (typeof dns.setDefaultResultOrder === 'function') {
@@ -37,6 +39,37 @@ dns.promises.lookup = function (hostname, options) {
   opts.family = 4;
   return originalPromisesLookup.call(dns.promises, hostname, opts);
 } as any;
+
+// Force IPv4 globally for all outbound TCP connections in mail delivery context
+const originalNetConnect = net.connect;
+// @ts-ignore
+net.connect = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalNetConnect.apply(this, [options, ...rest]);
+};
+
+const originalNetCreateConnection = net.createConnection;
+// @ts-ignore
+net.createConnection = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalNetCreateConnection.apply(this, [options, ...rest]);
+};
+
+const originalTlsConnect = tls.connect;
+// @ts-ignore
+tls.connect = function (...args) {
+  let [options, ...rest] = args;
+  if (typeof options === 'object' && options !== null) {
+    options.family = 4;
+  }
+  return originalTlsConnect.apply(this, [options, ...rest]);
+};
 
 export interface EmailDeliveryResult {
   success: boolean;
@@ -139,6 +172,10 @@ export async function sendVerificationEmail(
     },
     tls: {
       rejectUnauthorized: false
+    },
+    family: 4, // Explicitly force IPv4 connections
+    lookup: (hostname: string, options: any, callback: any) => {
+      dns.lookup(hostname, { family: 4 }, callback);
     }
   } as any);
 
@@ -189,6 +226,10 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       },
       tls: {
         rejectUnauthorized: false
+      },
+      family: 4, // Explicitly force IPv4 connections
+      lookup: (hostname: string, options: any, callback: any) => {
+        dns.lookup(hostname, { family: 4 }, callback);
       }
     } as any);
 
