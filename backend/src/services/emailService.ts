@@ -108,7 +108,10 @@ export async function sendVerificationEmail(
     tls: {
       rejectUnauthorized: false
     },
-    family: 4 // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
+    family: 4, // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
+    lookup: (hostname: string, options: any, callback: any) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    }
   } as any);
 
   try {
@@ -159,7 +162,10 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       tls: {
         rejectUnauthorized: false
       },
-      family: 4 // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
+      family: 4, // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
+      lookup: (hostname: string, options: any, callback: any) => {
+        dns.lookup(hostname, { family: 4 }, callback);
+      }
     } as any);
 
     const info = await transporter.sendMail({
