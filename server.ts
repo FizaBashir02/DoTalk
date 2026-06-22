@@ -44,6 +44,11 @@ async function startServer() {
 
   const app = express();
 
+  // Zero-overhead high-priority healthcheck route registered first to bypass CORS, body-parsers, and any middleware errors
+  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  });
+
   // 1. Comprehensive CORS Middleware
   app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -86,11 +91,6 @@ async function startServer() {
     }
     
     next();
-  });
-
-  // High-priority, zero-overhead healthcheck route for hosting platforms (like Railway)
-  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
-    res.status(200).json({ status: 'ok', serverTime: new Date().toISOString() });
   });
 
   app.use(express.json({ limit: '100mb' }));
@@ -592,5 +592,6 @@ process.on('uncaughtException', (error) => {
 });
 
 startServer().catch(err => {
-  console.error('DoTalk server start failure', err);
+  console.error('[DoTalk Server] CRITICAL STARTUP FAILURE!', err);
+  process.exit(1);
 });
