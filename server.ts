@@ -32,8 +32,8 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-// Port 3000 is default for AI Studio container, but dynamically maps process.env.PORT under production mode for container compliance (e.g. Railway, Render, etc.)
-const PORT = (process.env.NODE_ENV === 'production' && process.env.PORT) ? Number(process.env.PORT) : 3000;
+// Port 3000 is hardcoded as the only externally accessible port in the AI Studio environment.
+const PORT = 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
