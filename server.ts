@@ -10,6 +10,38 @@ import { Server } from 'socket.io';
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
+
+// Securely patch Node's dns.lookup globally to force IPv4 (family: 4) resolution for all TCP/SMTP connections
+const originalLookup = dns.lookup;
+// @ts-ignore
+dns.lookup = function (hostname, options, callback) {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  if (typeof options === 'number') {
+    options = { family: options };
+  } else if (!options) {
+    options = {};
+  }
+  options.family = 4;
+  return originalLookup.call(dns, hostname, options, callback);
+};
+
+// Also patch the promises lookup
+const originalPromisesLookup = dns.promises.lookup;
+dns.promises.lookup = function (hostname, options) {
+  let opts = options;
+  if (typeof options === 'number') {
+    opts = { family: options };
+  } else if (!options) {
+    opts = {};
+  } else if (typeof options === 'object') {
+    opts = { ...options };
+  }
+  opts.family = 4;
+  return originalPromisesLookup.call(dns.promises, hostname, opts);
+} as any;
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/utils/db.js';
 

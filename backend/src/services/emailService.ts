@@ -6,6 +6,38 @@ if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
 }
 
+// Securely patch Node's dns.lookup globally to force IPv4 (family: 4) resolution for all TCP/SMTP connections
+const originalLookup = dns.lookup;
+// @ts-ignore
+dns.lookup = function (hostname, options, callback) {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  if (typeof options === 'number') {
+    options = { family: options };
+  } else if (!options) {
+    options = {};
+  }
+  options.family = 4;
+  return originalLookup.call(dns, hostname, options, callback);
+};
+
+// Also patch the promises lookup
+const originalPromisesLookup = dns.promises.lookup;
+dns.promises.lookup = function (hostname, options) {
+  let opts = options;
+  if (typeof options === 'number') {
+    opts = { family: options };
+  } else if (!options) {
+    opts = {};
+  } else if (typeof options === 'object') {
+    opts = { ...options };
+  }
+  opts.family = 4;
+  return originalPromisesLookup.call(dns.promises, hostname, opts);
+} as any;
+
 export interface EmailDeliveryResult {
   success: boolean;
   provider: 'SMTP';
@@ -107,10 +139,6 @@ export async function sendVerificationEmail(
     },
     tls: {
       rejectUnauthorized: false
-    },
-    family: 4, // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
-    lookup: (hostname: string, options: any, callback: any) => {
-      dns.lookup(hostname, { family: 4 }, callback);
     }
   } as any);
 
@@ -161,10 +189,6 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       },
       tls: {
         rejectUnauthorized: false
-      },
-      family: 4, // Force connection to use IPv4 only - prevents IPv6 connect ENETUNREACH on Railway
-      lookup: (hostname: string, options: any, callback: any) => {
-        dns.lookup(hostname, { family: 4 }, callback);
       }
     } as any);
 
