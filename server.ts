@@ -32,71 +32,68 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-// Port 3000 is default for AI Studio container, but dynamically maps process.env.PORT for external deployment platforms compliance (e.g. Cloud Run, Railway, Render, etc.)
+// Port 3000 is default for AI Studio container, but dynamically maps process.env.PORT for Railway, Cloud Run, etc.
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-// ==========================================
-// 1. CHASSIS INITIALIZATION & IMMEDIATE BIND
-// ==========================================
+// =========================================================================
+// 1. CHASSIS INITIALIZATION & HEALTH ROUTES (Registered FIRST before anything)
+// =========================================================================
 const app = express();
 const server = http.createServer(app);
 
-// Zero-overhead high-priority healthcheck routes registered synchronously first to guarantee instantaneous successful probe responses
+// Immediate responses (<10ms) for health checker probes
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  res.status(200).send('OK');
 });
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  res.status(200).send('OK');
 });
 app.get('/healthz', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  res.status(200).send('OK');
 });
 
-// Immediately handle '/' root health check probes for automated container orchestrators
-app.get('/', (req, res, next) => {
-  const accept = req.headers.accept || '';
-  if (accept.includes('text/html')) {
-    // Pass along to standard frontend/Vite handler routes
-    next();
-  } else {
-    // Quick API status response for generic HTTP test query probes
-    res.status(200).json({ status: 'ok', message: 'DoTalk API Live Feed', serverTime: new Date().toISOString() });
-  }
-});
+// Root route requirement for Railway health checks and production environments
+if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+  app.get('/', (req, res) => {
+    res.status(200).send('OK');
+  });
+} else {
+  app.get('/', (req, res, next) => {
+    const accept = req.headers.accept || '';
+    if (!accept.includes('text/html')) {
+      res.status(200).send('OK');
+    } else {
+      next();
+    }
+  });
+}
 
-// Start listening immediately on 0.0.0.0:$PORT so that the Railway proxy gets TCP confirmation under 10ms
+// =========================================================================
+// 2. IMMEDIATE PORT BINDING (Guarantees TCP connection check passes instantly)
+// =========================================================================
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`   🚀 [Railway Production Stable Setup Activated]`);
   console.log(`   Port Binding Confirmed: 0.0.0.0:${PORT}`);
-  console.log(`   Health Checks Active at: /health, /api/health, /healthz`);
+  console.log(`   Immediate Health Probes Ready: /, /health, /api/health`);
   console.log(`=======================================================`);
+
+  // Start backplane engine and database asynchronously purely after port is listening
+  startServerEngine().catch(err => {
+    console.error('[DoTalk Server] CRITICAL RECOVERY ERROR IN PORT ENGINE ENGINE!', err);
+  });
 });
 
-// ==========================================
-// 2. ASYNCHRONOUS ENGINE & INITIALIZATIONS
-// ==========================================
+// =========================================================================
+// 3. ASYNCHRONOUS INITIALIZATIONS (Executes cleanly in background after listen)
+// =========================================================================
 async function startServerEngine() {
-  const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production';
-  
-  // Validate critical vars without killing or blocking immediate TCP startup
-  const missingVars = [];
-  if (!process.env.MONGODB_URI) missingVars.push('MONGODB_URI');
-  if (!process.env.RESEND_API_KEY) missingVars.push('RESEND_API_KEY');
-  if (!process.env.RESEND_FROM_EMAIL) missingVars.push('RESEND_FROM_EMAIL');
-
-  if (missingVars.length > 0) {
-    console.warn(`⚠️ [DoTalk Environment Warn] Missing production variables: ${missingVars.join(', ')}`);
-  } else {
-    console.log(`✅ [DoTalk Startup] All critical production credentials confirmed.`);
-  }
-
-  // Connect to DB asynchronously (never block server startup)
-  console.log('[DoTalk DB Connection] Connecting to MongoDB in the background...');
+  // Fire-and-forget MongoDB connection verification in the background
+  console.log('[DoTalk DB Connection] Initiating MongoDB connect in backend task...');
   db.verifyAndConnect().then(() => {
-    console.log('[DoTalk DB Connection] MongoDB verified and connected successfully.');
+    console.log('[DoTalk DB Connection] MongoDB linked and operational.');
   }).catch((err: any) => {
-    console.error('[DoTalk DB Connection] MongoDB verification returned an error:', err.message);
+    console.warn('[DoTalk DB Connection] MongoDB connection failed/timed out in background:', err.message);
   });
 
   // Comprehensive Production CORS Middleware
@@ -379,7 +376,7 @@ async function startServerEngine() {
     });
 
     socket.on('reject_call', (data: { callerId: string }) => {
-      console.log(`[DoTalk Calls] Call rejected for callerId: ${data.callerId}`);
+      console.log(`[DoTalk Sockets/Call Reject] Call rejected for callerId: ${data.callerId}`);
       for (const [sId, uId] of activeSockets.entries()) {
         if (uId === data.callerId) {
           io.to(sId).emit('call_rejected');
@@ -570,7 +567,5 @@ process.on('uncaughtException', (error) => {
   console.error('[DoTalk Server] Error: Uncaught Exception:', error);
 });
 
-// Run background core initialization smoothly
-startServerEngine().catch(err => {
-  console.error('[DoTalk Server] CRITICAL RECOVERY ERROR IN PORT ENGINE ENGINE!', err);
-});
+// Server is initialized successfully within the server.listen callback.
+
