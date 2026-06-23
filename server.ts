@@ -36,6 +36,26 @@ import statusRouter from './server/routes/status.routes.js';
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 async function startServer() {
+  // Validate production-critical environment variables at startup
+  const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production';
+  const missingVars = [];
+  if (!process.env.MONGODB_URI) missingVars.push('MONGODB_URI');
+  if (!process.env.RESEND_API_KEY) missingVars.push('RESEND_API_KEY');
+  if (!process.env.RESEND_FROM_EMAIL) missingVars.push('RESEND_FROM_EMAIL');
+
+  if (missingVars.length > 0) {
+    console.error(`\n🚨 [FATAL STARTUP ERROR] Missing critical environment variables: ${missingVars.join(', ')}`);
+    console.error(`Please provide these variables in your hosting dashboard or .env file.`);
+    if (isProd) {
+      console.error(`The application is in production mode but lacks critical credentials. Exiting to protect health...`);
+      process.exit(1);
+    } else {
+      console.warn(`⚠️ Running in development/sandbox mode. Some features will rely on local mock fallback simulations.`);
+    }
+  } else {
+    console.log(`✅ [DoTalk Startup] All critical production environment variables verified (MongoDB & Resend API).`);
+  }
+
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
   console.log('[DoTalk Multi-Mode] Initializing and verifying database connection in background...');
   db.verifyAndConnect().catch((err: any) => {

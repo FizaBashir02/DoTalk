@@ -1,62 +1,43 @@
-import nodemailer from 'nodemailer';
-import dns from 'dns';
-import { promisify } from 'util';
+import { Resend } from 'resend';
 
-// Ensure DNS lookup prefers IPv4 globally to circumvent ENETUNREACH IPv6 routing errors on platforms like Railway
-if (typeof dns.setDefaultResultOrder === 'function') {
-  dns.setDefaultResultOrder('ipv4first');
+// Helper to check if running in production mode
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production';
+
+// Startup Validation (Lazy, informative warning to avoid stalling container bootstrap but providing highly visible diagnostics)
+export function validateEmailConfig(): { provider: 'Resend' | 'MockFallback'; apiKey?: string; fromEmail?: string } {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  
+  if (!apiKey || !fromEmail) {
+    const missing = [];
+    if (!apiKey) missing.push('RESEND_API_KEY');
+    if (!fromEmail) missing.push('RESEND_FROM_EMAIL');
+    
+    console.warn(`\n================================================================`);
+    console.warn(`⚠️  [DoTalk Resend Service] Configuration Incomplete!`);
+    console.warn(`Missing environment variables: ${missing.join(', ')}`);
+    console.warn(`Emails will default to the sandbox simulator debug layout in development.`);
+    console.warn(`================================================================\n`);
+    
+    return { provider: 'MockFallback' };
+  }
+  
+  return { provider: 'Resend', apiKey, fromEmail };
 }
 
-const lookupAsync = promisify(dns.lookup);
-
-/**
- * Resolves a hostname to its IPv4 address to robustly bypass any glibc getaddrinfo IPv6 network-unreachable errors.
- */
-async function resolveHostToIPv4(host: string): Promise<string> {
-  // If host is already an IP address, return it
-  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':')) {
-    return host;
-  }
+// Perform a graceful module load alert
+setTimeout(() => {
   try {
-    const res = await lookupAsync(host, { family: 4 });
-    console.log(`[Email Service DNS] Successfully resolved host "${host}" to IPv4 address: "${res.address}"`);
-    return res.address;
-  } catch (err: any) {
-    console.warn(`[Email Service DNS Warning] Failed to resolve host "${host}" to IPv4: ${err.message}. Custom resolver falling back to raw hostname.`);
-    return host;
+    validateEmailConfig();
+  } catch (e) {
+    // Avoid crude exceptions blocking load
   }
-}
+}, 1000);
 
 export interface EmailDeliveryResult {
   success: boolean;
-  provider: 'SMTP';
+  provider: 'Resend' | 'MockFallback';
   messageId?: string;
-}
-
-/**
- * Validates the email configuration BEFORE attempting to send any email.
- */
-export function validateEmailConfig(): { provider: 'SMTP' } {
-  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const smtpPort = process.env.SMTP_PORT || '587';
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM || smtpUser;
-
-  const missingParts: string[] = [];
-  if (!smtpHost) missingParts.push('SMTP_HOST');
-  if (!smtpPort) missingParts.push('SMTP_PORT');
-  if (!smtpUser) missingParts.push('SMTP_USER');
-  if (!smtpPass) missingParts.push('SMTP_PASS');
-  if (!smtpFrom) missingParts.push('SMTP_FROM');
-
-  if (missingParts.length > 0) {
-    const errorMsg = `SMTP configuration is incomplete. Please configure missing environment secrets: ${missingParts.join(', ')}`;
-    console.error(`[Email Service Config Error] ${errorMsg}`);
-    throw new Error(errorMsg);
-  }
-
-  return { provider: 'SMTP' };
 }
 
 /**
@@ -74,56 +55,20 @@ export function validateEmailAddress(email: string): string {
 }
 
 /**
- * Helper to build high-compatibility Nodemailer transport with forced IPv4
- */
-function createSmtpTransporter(resolvedHost: string, originalHost: string, port: number, secure: boolean, user: string, pass: string) {
-  return nodemailer.createTransport({
-    host: resolvedHost,
-    port,
-    secure,
-    requireTLS: port === 587,
-    auth: {
-      user,
-      pass
-    },
-    tls: {
-      rejectUnauthorized: false,
-      servername: originalHost // Crucial for TLS handshake alignment with the certificate on the resolved IP!
-    },
-    connectionTimeout: 10000, // 10 seconds timeout
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    family: 4, // Natively direct nodemailer to prefer IPv4 sockets
-    // Localized DNS lookup overrides for this SMTP connection ONLY - leaves other services untouched and clean!
-    lookup: (hostname: string, options: any, callback: any) => {
-      dns.lookup(hostname, { family: 4 }, callback);
-    }
-  } as any);
-}
-
-/**
- * Sends a secure, production-ready verification code OTP to user email with dynamic dual-port fallback resilience
+ * Sends a secure, production-ready verification code OTP to user email using physical Resend SDK
  */
 export async function sendVerificationEmail(
   email: string,
   otpCode: string,
   expiresMinutes: number = 5
 ): Promise<EmailDeliveryResult> {
-  // 1. Ensure SMTP config is fully verified
-  validateEmailConfig();
-
-  // 2. Validate email recipient address
+  // Validate recipient format
   const recipientEmail = validateEmailAddress(email);
 
-  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const resolvedHost = await resolveHostToIPv4(smtpHost);
-  const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
-  const smtpUser = process.env.SMTP_USER!;
-  const smtpPass = process.env.SMTP_PASS!;
-  const smtpFrom = process.env.SMTP_FROM || smtpUser;
-  // If SMTP_SECURE is explicitly "true", use secure connection. Otherwise, if port is 465, use secure. Otherwise false (e.g. for 587 STARTTLS).
-  const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
+  // Validate configuration and check mode
+  const { provider, apiKey, fromEmail } = validateEmailConfig();
 
+  const fromName = process.env.SMTP_FROM_NAME || 'DoTalk Messenger';
   const subjectText = 'Your DoTalk Verification Code';
   const plainText = `Hello,\n\nYour DoTalk verification code is:\n\n${otpCode}\n\nThis code expires in ${expiresMinutes} minutes.\n\nIf you did not request this, please ignore this email.`;
   
@@ -144,119 +89,104 @@ export async function sendVerificationEmail(
     </div>
   `;
 
-  console.log(`[Email Service] SMTP SMTP Attempt: Sending verification code to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure}, resolved IP: ${resolvedHost})`);
+  if (provider === 'MockFallback') {
+    if (isProduction) {
+      // In strict production, throw a precise error so deployment failure is visible
+      throw new Error('Resend is not configured! Please specify RESEND_API_KEY and RESEND_FROM_EMAIL in your production environment variables.');
+    }
+    console.log(`\n=============================================================`);
+    console.log(`[Email Service Sandbox Mock]`);
+    console.log(`TO: ${recipientEmail}`);
+    console.log(`CODE: ${otpCode} (Valid for ${expiresMinutes} mins)`);
+    console.log(`=============================================================\n`);
+    return { success: true, provider: 'MockFallback', messageId: 'mock_' + Math.random().toString(36).substring(7) };
+  }
 
-  // Attempt 1: primary configuration
-  try {
-    const transporter = createSmtpTransporter(resolvedHost, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
-    const info = await transporter.sendMail({
-      from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
-      to: recipientEmail,
-      subject: subjectText,
-      text: plainText,
-      html: htmlBody
-    });
+  // Attempt Resend delivery using SDK with built-in retry logic
+  let attempt = 0;
+  const maxRetries = 3;
+  let lastError: any = null;
 
-    console.log(`[Email Service Success] Successfully delivered message to ${recipientEmail} on main port ${smtpPort} (ID: ${info.messageId})`);
-    return {
-      success: true,
-      provider: 'SMTP',
-      messageId: info.messageId
-    };
-  } catch (primaryErr: any) {
-    console.warn(`[Email Service SMTP Warning] Main delivery attempt on port ${smtpPort} failed: ${primaryErr.message}`);
-    
-    // Fallback: If port 465 failed, try port 587 (STARTTLS). If port 587 failed, try port 465.
-    const fallbackPort = smtpPort === 465 ? 587 : 465;
-    const fallbackSecure = fallbackPort === 465;
-    
-    console.log(`[Email Service Fallback] Initiating automated fallback SMTP attempt to <${recipientEmail}> via ${smtpHost}:${fallbackPort} (Secure: ${fallbackSecure})`);
-    
+  while (attempt < maxRetries) {
     try {
-      const fallbackTransporter = createSmtpTransporter(resolvedHost, smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
-      const info = await fallbackTransporter.sendMail({
-        from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
+      console.log(`[Resend SDK] Send attempt ${attempt + 1}/${maxRetries} to <${recipientEmail}> (via ${fromEmail})...`);
+      const resend = new Resend(apiKey);
+      const emailResponse = await resend.emails.send({
+        from: `"${fromName}" <${fromEmail}>`,
         to: recipientEmail,
         subject: subjectText,
         text: plainText,
-        html: htmlBody
+        html: htmlBody,
       });
-      
-      console.log(`[Email Service Success] Fallback delivered message perfectly to ${recipientEmail} on port ${fallbackPort}! (ID: ${info.messageId})`);
+
+      if (emailResponse.error) {
+        throw new Error(emailResponse.error.message || JSON.stringify(emailResponse.error));
+      }
+
+      console.log(`[Resend SDK Success] Verification email successfully processed (ID: ${emailResponse.data?.id})`);
       return {
         success: true,
-        provider: 'SMTP',
-        messageId: info.messageId
+        provider: 'Resend',
+        messageId: emailResponse.data?.id || undefined,
       };
-    } catch (fallbackErr: any) {
-      console.error(`[Email Service SMTP Error] Both primary port ${smtpPort} and fallback port ${fallbackPort} failed!`);
-      console.error(`  - Primary Error: ${primaryErr.message}`);
-      console.error(`  - Fallback Error: ${fallbackErr.message}`);
-      console.error(`[Email Service SMTP Diagnostics] Host: ${smtpHost} | User: ${smtpUser}`);
-      throw new Error(`SMTP sending failed: ${primaryErr.message} (Fallback failed: ${fallbackErr.message})`);
+    } catch (err: any) {
+      lastError = err;
+      attempt++;
+      console.warn(`[Resend SDK Try ${attempt} Failed]: ${err.message || err}`);
+      if (attempt < maxRetries) {
+        const delay = 1000 * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     }
   }
+
+  throw new Error(`Resend email delivery failed after ${maxRetries} attempts. Last error: ${lastError?.message || lastError}`);
 }
 
 /**
- * Sends a general high-reliability test email (useful for dev verification) with dynamic dual-port fallback resilience
+ * Sends a generic testing email to verify Resend status (called from admin/developer routes)
  */
 export async function sendTestEmail(recipientEmail: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
-    validateEmailConfig();
-    const cleanIn = validateEmailAddress(recipientEmail);
-    const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-    const resolvedHost = await resolveHostToIPv4(smtpHost);
-    const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
-    const smtpUser = process.env.SMTP_USER!;
-    const smtpPass = process.env.SMTP_PASS!;
-    const smtpFrom = process.env.SMTP_FROM || smtpUser;
-    const smtpSecure = process.env.SMTP_SECURE === 'true' || (smtpPort === 465);
+    const recipient = validateEmailAddress(recipientEmail);
+    const { provider, apiKey, fromEmail } = validateEmailConfig();
+    const fromName = process.env.SMTP_FROM_NAME || 'DoTalk Messenger';
 
-    const subject = 'SMTP Integration Connection Test Successful ✅';
-    const text = `Hello,\n\nYour SMTP email delivery integration works perfectly with dynamic dual-port fallback and forced IPv4!`;
-    const getHtml = (activePort: number, activeSecure: boolean) => `
-      <div style="font-family: sans-serif; max-width: 500px; padding: 20px; border: 1px solid #10b981; border-radius: 8px; background-color: #ecfdf5;">
-        <h2 style="color: #065f46; margin-top: 0;">SMTP Test Successful 🎉</h2>
-        <p style="color: #047857;">Your Node.js background mail delivery is successfully configured and working with high-availability fallback.</p>
-        <hr style="border: 0; border-top: 1px solid #a7f3d0; margin: 15px 0;" />
-        <ul style="font-size: 13px; color: #065f46; padding-left: 20px;">
-          <li><strong>SMTP Server:</strong> ${smtpHost}:${activePort}</li>
-          <li><strong>Forced IPv4:</strong> Enabled (family 4)</li>
-          <li><strong>TLS Secure Connection:</strong> ${activeSecure}</li>
-          <li><strong>Authenticating Account:</strong> ${smtpUser}</li>
-        </ul>
-      </div>
-    `;
-
-    try {
-      const transporter = createSmtpTransporter(resolvedHost, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
-      const info = await transporter.sendMail({
-        from: `SMTP Test <${smtpFrom}>`,
-        to: cleanIn,
-        subject,
-        text,
-        html: getHtml(smtpPort, smtpSecure)
-      });
-      return { success: true, messageId: info.messageId };
-    } catch (primaryErr: any) {
-      console.warn(`[Email Service Test SMTP Warning] Main attempt failed: ${primaryErr.message}. Trying fallback...`);
-      const fallbackPort = smtpPort === 465 ? 587 : 465;
-      const fallbackSecure = fallbackPort === 465;
-
-      const fallbackTransporter = createSmtpTransporter(resolvedHost, smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
-      const info = await fallbackTransporter.sendMail({
-        from: `SMTP Test <${smtpFrom}>`,
-        to: cleanIn,
-        subject,
-        text,
-        html: getHtml(fallbackPort, fallbackSecure)
-      });
-      return { success: true, messageId: info.messageId };
+    if (provider === 'MockFallback') {
+      if (isProduction) {
+        throw new Error('Resend is not configured! Please configure RESEND_API_KEY and RESEND_FROM_EMAIL.');
+      }
+      return { success: true, messageId: 'mock_test_id' };
     }
+
+    const resend = new Resend(apiKey);
+    const emailResponse = await resend.emails.send({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: recipient,
+      subject: 'Resend Integration Status Successful ✅',
+      text: `Hello,\n\nYour production Resend API integration is fully functional and successfully configured!`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 500px; padding: 20px; border: 1px solid #10b981; border-radius: 8px; background-color: #ecfdf5;">
+          <h2 style="color: #065f46; margin-top: 0;">Resend HTTPS Setup Active 🎉</h2>
+          <p style="color: #047857;">Web-API based email notifications are working perfectly over secure HTTPS port 443.</p>
+          <hr style="border: 0; border-top: 1px solid #a7f3d0; margin: 15px 0;" />
+          <ul style="font-size: 13px; color: #065f46; padding-left: 20px;">
+            <li><strong>Provider:</strong> Resend REST SDK</li>
+            <li><strong>Verified Sender:</strong> ${fromEmail}</li>
+            <li><strong>Sender Display Name:</strong> ${fromName}</li>
+          </ul>
+        </div>
+      `,
+    });
+
+    if (emailResponse.error) {
+      throw new Error(emailResponse.error.message);
+    }
+
+    return { success: true, messageId: emailResponse.data?.id || undefined };
   } catch (err: any) {
-    console.error(`[Email Service Test SMTP Error] Delivery failed on both primary and fallback ports:`, err);
-    return { success: false, error: err.message };
+    console.error('[Resend SDK Test Error] Failure sending test email:', err.message || err);
+    return { success: false, error: err.message || err };
   }
 }
 

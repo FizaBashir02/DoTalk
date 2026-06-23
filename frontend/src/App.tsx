@@ -36,7 +36,8 @@ import {
   Trash2,
   Pin,
   Archive,
-  MoreVertical
+  MoreVertical,
+  UserMinus
 } from 'lucide-react';
 
 export default function App() {
@@ -470,6 +471,25 @@ export default function App() {
       }
     } catch (e) {
       setToast({ text: 'Error clearing request', type: 'error' });
+    }
+  };
+
+  const removeContact = async (targetId: string) => {
+    try {
+      const response = await apiFetch('/api/users/contacts/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setToast({ text: 'Contact successfully removed', type: 'success' });
+        fetchContacts();
+      } else {
+        setToast({ text: data.error || 'Failed to remove contact', type: 'error' });
+      }
+    } catch (e) {
+      setToast({ text: 'Error removing contact', type: 'error' });
     }
   };
 
@@ -1231,6 +1251,18 @@ export default function App() {
                               <span className="text-[10px] text-app-text-secondary block truncate">@{contact.username} • {contact.bio || 'Available'}</span>
                             </div>
                             <span className={`w-2 h-2 rounded-full shrink-0 ${contact.onlineStatus === 'online' ? 'bg-emerald-500' : 'bg-transparent'}`} />
+                            <button
+                              title="Remove Contact"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Are you sure you want to remove ${contact.fullName} from your contacts?`)) {
+                                  removeContact(contact._id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-all text-stone-400 shrink-0"
+                            >
+                              <UserMinus className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         ))
                     )}

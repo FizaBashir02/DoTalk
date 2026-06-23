@@ -389,6 +389,42 @@ router.post('/contacts/reject', authenticateToken, (req: AuthenticatedRequest, r
   }
 });
 
+// REMOVE CONTACT (UNFRIEND)
+router.post('/contacts/remove', authenticateToken, (req: AuthenticatedRequest, res: Response): void => {
+  try {
+    const currentUserId = req.user?.userId;
+    const { targetId } = req.body;
+
+    if (!currentUserId || !targetId) {
+      res.status(400).json({ error: 'Target user ID is required' });
+      return;
+    }
+
+    const selfUser = db.findUserById(currentUserId);
+    const targetUser = db.findUserById(targetId);
+
+    if (selfUser) {
+      const selfContacts = (selfUser.contacts || []).filter(id => id !== targetId);
+      db.updateUser(currentUserId, { contacts: selfContacts });
+    }
+
+    if (targetUser) {
+      const targetContacts = (targetUser.contacts || []).filter(id => id !== currentUserId);
+      db.updateUser(targetId, { contacts: targetContacts });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('contact_accepted', { senderId: targetId, receiverId: currentUserId });
+      io.emit('contact_request_update', { senderId: targetId, receiverId: currentUserId });
+    }
+
+    res.status(200).json({ message: 'Contact successfully removed' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Server error: ' + error.message });
+  }
+});
+
 // UNBLOCK USER
 router.post('/unblock', authenticateToken, (req: AuthenticatedRequest, res: Response): void => {
   try {

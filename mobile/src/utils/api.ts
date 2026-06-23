@@ -3,16 +3,18 @@ import io from 'socket.io-client';
 
 /**
  * CONFIGURABLE API_BASE_URL
- * Change this string to point to your backend.
- * 
- * - For Android Emulator + Local Backend: Use 'http://10.0.2.2:3000'
- * - For Physical Device + Local Backend: Use your computer's local IP (e.g. 'http://192.168.1.50:3000')
- * - For Production Backend: Use your deployment URL (e.g. 'https://dotalk-production.up.railway.app')
+ * Points to the backend api dynamically based on environment variables.
  */
-export const API_BASE_URL = 'https://dotalk-production.up.railway.app';
+export const API_BASE_URL = 
+  (typeof process !== 'undefined' && (process.env.BACKEND_URL || process.env.VITE_API_URL)) ||
+  'https://dotalk-production.up.railway.app';
 
 // Backward compatibility fallback for other files
 export const BACKEND_URL = API_BASE_URL;
+
+export const getSocketUrl = (): string => {
+  return (typeof process !== 'undefined' && (process.env.WS_URL || process.env.VITE_WS_URL)) || API_BASE_URL;
+};
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -133,7 +135,8 @@ let socket: any = null;
 
 export const getSocket = (token?: string) => {
   if (!socket) {
-    socket = io(API_BASE_URL, {
+    const socketUrl = getSocketUrl();
+    socket = io(socketUrl, {
       transports: ['websocket'],
       auth: {
         token,
@@ -142,7 +145,7 @@ export const getSocket = (token?: string) => {
     });
     
     socket.on('connect', () => {
-      console.log('[Socket] Connected successfully to live websocket stream!', API_BASE_URL);
+      console.log('[Socket] Connected successfully to live websocket stream!', socketUrl);
     });
 
     socket.on('connect_error', (err: any) => {

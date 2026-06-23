@@ -22,7 +22,6 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
   const [otpError, setOtpError] = useState('');
   const [resendTimer, setResendTimer] = useState(60); // 60 seconds limit for resend
   const [expiryTimer, setExpiryTimer] = useState(300); // 5 minutes (300s) OTP validity
-  const [debugOtpCode, setDebugOtpCode] = useState<string>('');
 
   // General Status Alerts
   const [errorText, setErrorText] = useState('');
@@ -54,31 +53,14 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
     }
   }, [screen]);
 
-  const fetchDebugOtp = async () => {
-    try {
-      const response = await apiFetch(`/api/auth/debug-otp/${encodeURIComponent(email)}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.code && data.code !== '(Code only available in server logs)') {
-          setDebugOtpCode(data.code);
-        }
-      }
-    } catch (e) {
-      console.warn('Debug OTP fetch error:', e);
-    }
-  };
-
   // Timers countdown
   useEffect(() => {
     if (screen === 'otp') {
-      fetchDebugOtp();
       const interval = setInterval(() => {
         setResendTimer(prev => (prev > 0 ? prev - 1 : 0));
         setExpiryTimer(prev => (prev > 0 ? prev - 1 : 0));
       }, 1000);
       return () => clearInterval(interval);
-    } else {
-      setDebugOtpCode('');
     }
   }, [screen]);
 
@@ -189,7 +171,6 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
         setOtpCode(Array(6).fill(''));
         setSuccessText('New verification code sent! Check your email.');
         setTimeout(resetMessages, 3000);
-        setTimeout(fetchDebugOtp, 500);
       } else {
         setOtpError(data.error || 'Failed to send code');
       }
@@ -534,35 +515,6 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
               <p className="text-xs opacity-85 leading-relaxed mb-4 text-app-text-secondary">
                 Verification code has been sent to your email: <span className="font-bold underline text-app-text-primary">{email}</span>. Valid for 5 minutes.
               </p>
-
-              {debugOtpCode && (
-                <div className="p-3 mb-4 bg-amber-100 border border-amber-300 text-[#7A4011] rounded-xl text-xs flex flex-col gap-1.5 shadow-sm">
-                  <div className="font-bold flex items-center gap-1.5">
-                    💡 [Sandbox Development Notice]
-                  </div>
-                  <p className="opacity-90 leading-tight">
-                    Since standard cloud hosting environments block outgoing SMTP ports (465/587) to prevent spam, we retrieved your verification code directly for testing ease:
-                  </p>
-                  <div className="flex items-center justify-between mt-1 pt-1.5 border-t border-amber-200">
-                    <span className="font-mono font-extrabold text-sm tracking-wider bg-amber-200/60 px-2 py-0.5 rounded">
-                      {debugOtpCode}
-                    </span>
-                    <button
-                      onClick={() => {
-                        const digits = debugOtpCode.split('');
-                        if (digits.length === 6) {
-                          setOtpCode(digits);
-                          otpRefs.current[5]?.focus();
-                          handleVerifyOtp(debugOtpCode);
-                        }
-                      }}
-                      className="text-xs bg-[#7A4011] text-amber-50 px-2.5 py-1 rounded-lg font-bold hover:opacity-90 cursor-pointer"
-                    >
-                      Autofill & Verify
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {otpError && (
                 <div className="p-2.5 mb-4 text-xs font-semibold bg-red-100 text-red-600 rounded-lg border border-red-200">

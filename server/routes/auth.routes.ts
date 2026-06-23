@@ -111,27 +111,24 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       otpCode
     );
 
-    // Print generated OTP code to server log as a diagnostic developer fallback
-    console.log(`\n================================================================`);
-    console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
-    console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
-    console.log(`================================================================\n`);
-
     // Ensure email is sent before responding
     let emailSent = false;
     try {
-      console.log(`[DoTalk Controller] Triggering verification email delivery...`);
+      console.log(`[DoTalk Controller] Triggering Resend verification email delivery...`);
       emailSent = await sendOTPEmail(emailTrimmed, otpCode);
     } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error] SMTP delivery failed.', mailError);
+      console.error('[DoTalk Mailer Error] Resend delivery failed.', mailError);
+    }
+
+    if (!emailSent) {
+      res.status(500).json({ error: 'OTP sending failed, try again' });
+      return;
     }
 
     res.status(200).json({
-      message: emailSent 
-        ? 'Verification code has been sent to your email.' 
-        : 'Verification code generated (Email delivery failed. Please check server logs).',
+      message: 'Verification code has been sent to your email.',
       email: emailTrimmed,
-      emailSent
+      emailSent: true
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Server error: ' + error.message });
@@ -176,28 +173,25 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
         db.createOTP(user.email, hashedOtp, expiresAt, new Date().toISOString(), undefined, undefined, otpCode);
 
-        // Print generated OTP code to server log as a diagnostic developer fallback
-        console.log(`\n================================================================`);
-        console.log(`[DoTalk Diagnostic] OTP generated for email: ${user.email}`);
-        console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
-        console.log(`================================================================\n`);
-
         // Ensure email is sent before responding
         let emailSent = false;
         try {
           console.log(`[DoTalk Controller] Triggering unverified user login email delivery...`);
           emailSent = await sendOTPEmail(user.email.toLowerCase().trim(), otpCode);
         } catch (mailError: any) {
-          console.error('[DoTalk Mailer Error] SMTP login delivery failed.', mailError);
+          console.error('[DoTalk Mailer Error] Resend login delivery failed.', mailError);
+        }
+
+        if (!emailSent) {
+          res.status(500).json({ error: 'OTP sending failed, try again' });
+          return;
         }
 
         res.status(403).json({
-          error: emailSent 
-            ? 'Please verify your email first (Verification code sent).' 
-            : 'Please verify your email first (Email delivery failed. Check server logs).',
+          error: 'Please verify your email first (Verification code sent).',
           emailVerified: false,
           email: user.email,
-          emailSent
+          emailSent: true
         });
         return;
       }
@@ -278,27 +272,24 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
       db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, undefined, otpCode);
 
-      // Print generated OTP code to server log as a diagnostic developer fallback
-      console.log(`\n================================================================`);
-      console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
-      console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
-      console.log(`================================================================\n`);
-
       // Ensure email is sent before responding
       let emailSent = false;
       try {
         console.log(`[DoTalk Controller] Triggering resend OTP delivery...`);
         emailSent = await sendOTPEmail(emailTrimmed, otpCode);
       } catch (mailError: any) {
-        console.error('[DoTalk Mailer Error] SMTP resend delivery failed.', mailError);
+        console.error('[DoTalk Mailer Error] Resend resend-otp delivery failed.', mailError);
+      }
+
+      if (!emailSent) {
+        res.status(500).json({ error: 'OTP sending failed, try again' });
+        return;
       }
 
       res.status(200).json({
-        message: emailSent 
-          ? 'Verification code has been sent to your email.' 
-          : 'Verification code generated (Email delivery failed. Please check server logs).',
+        message: 'Verification code has been sent to your email.',
         email: emailTrimmed,
-        emailSent
+        emailSent: true
       });
     }
   } catch (error: any) {
@@ -483,26 +474,23 @@ router.post('/resend-otp', async (req: Request, res: Response): Promise<void> =>
     // Save new OTP keeping pending name intact if exists
     db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, existingOtp?.pendingName, otpCode);
 
-    // Print generated OTP code to server log as a diagnostic developer fallback
-    console.log(`\n================================================================`);
-    console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
-    console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
-    console.log(`================================================================\n`);
-
     // Ensure email is sent before responding
     let emailSent = false;
     try {
       console.log(`[DoTalk Controller] Triggering recovery OTP delivery...`);
       emailSent = await sendOTPEmail(emailTrimmed, otpCode);
     } catch (mailError: any) {
-      console.error('[DoTalk Mailer Error] SMTP forgot password delivery failed.', mailError);
+      console.error('[DoTalk Mailer Error] Resend recovery delivery failed.', mailError);
+    }
+
+    if (!emailSent) {
+      res.status(500).json({ error: 'OTP sending failed, try again' });
+      return;
     }
 
     res.status(200).json({
-      message: emailSent 
-        ? 'Verification code has been sent to your email.' 
-        : 'Verification code generated (Email recovery delivery failed. Check server logs).',
-      emailSent
+      message: 'Verification code has been sent to your email.',
+      emailSent: true
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Server error: ' + error.message });
@@ -528,65 +516,6 @@ router.post('/refresh', (req: Request, res: Response): void => {
   } catch (err) {
     res.status(403).json({ error: 'Invalid refresh token' });
   }
-});
-
-// SECURE SMTP CONNECTION & EMAIL DELIVERY TEST ENDPOINT
-router.post('/test-email', async (req: Request, res: Response): Promise<void> => {
-  const { email } = req.body;
-  if (!email) {
-    res.status(400).json({ error: 'Recipient email address is required' });
-    return;
-  }
-
-  try {
-    console.log(`[DoTalk SMTP Test] Initiating SMTP connection check to: ${email}`);
-    const result = await sendTestEmail(email);
-    if (result.success) {
-      res.status(200).json({
-        success: true,
-        message: `Test email successfully sent to ${email}`,
-        messageId: result.messageId
-      });
-    } else {
-      res.status(502).json({
-        success: false,
-        error: `SMTP server error: ${result.error}`,
-        diagnostics: {
-          SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
-          SMTP_PORT: process.env.SMTP_PORT || '587',
-          SMTP_USER: process.env.SMTP_USER,
-          SMTP_SECURE: process.env.SMTP_SECURE || 'false',
-          FORCE_IPV4: true
-        }
-      });
-    }
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: `Server failed to complete SMTP test: ${error.message}`
-    });
-  }
-});
-
-// DEBUG ENDPOINT TO FETCH LATEST OTP (To support environments with blocked SMTP outgoing traffic)
-router.get('/debug-otp/:email', (req: Request, res: Response): void => {
-  const { email } = req.params;
-  if (!email) {
-    res.status(400).json({ error: 'Email parameter is required' });
-    return;
-  }
-  const cleanEmail = email.toLowerCase().trim();
-  const dbOtp = db.getOTPByEmail(cleanEmail);
-  if (!dbOtp) {
-    res.status(404).json({ error: 'No active OTP verification code found for this email address.' });
-    return;
-  }
-  res.status(200).json({
-    email: cleanEmail,
-    code: dbOtp.codePlain || '(Code only available in server logs)',
-    expiresAt: dbOtp.expiresAt,
-    verified: dbOtp.verified
-  });
 });
 
 export default router;
