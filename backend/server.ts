@@ -19,9 +19,8 @@ import userRouter from './routes/user.routes.js';
 import chatRouter from './routes/chat.routes.js';
 import statusRouter from './routes/status.routes.js';
 
-// Port 3000 is hardcoded as the only externally accessible port in the AI Studio environment.
-// For staging and production platforms (e.g. Railway, Render, Cloud Run), we resolve the variable port cleanly.
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+// Port configuration dynamically maps process.env.PORT for Railway, Cloud Run, etc.
+const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
@@ -51,12 +50,9 @@ async function startServer() {
       'https://do-talk-ivory.vercel.app',
       'https://do-talk-amber.vercel.app',
       'https://dotalk-production.up.railway.app',
-      'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:4000',
-      'http://127.0.0.1:3000',
       'http://127.0.0.1:5173',
-      'http://10.0.2.2:3000',
       'http://10.0.2.2:5173'
     ];
 

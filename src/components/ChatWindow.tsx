@@ -32,7 +32,7 @@ export default function ChatWindow({ chat, currentUser, onBack, theme }: ChatWin
 
   // Initialize socket and fetch historic logs
   useEffect(() => {
-    // Connect socket on same origin port 3000
+    // Connect socket on same origin port
     const socket = io({
       transports: ['websocket', 'polling']
     });

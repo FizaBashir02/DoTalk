@@ -20,7 +20,6 @@ WORKDIR /app
 
 # Define production environment
 ENV NODE_ENV=production
-ENV PORT=3000
 
 # Copy root configurations and package.json
 COPY package*.json ./
@@ -32,9 +31,6 @@ RUN npm ci --only=production --legacy-peer-deps
 # Copy build artifacts and runtime storage directory structures from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/uploads ./uploads
-
-# Expose port and configure entrypoint
-EXPOSE 3000
 
 RUN chmod +x ./start.sh
 

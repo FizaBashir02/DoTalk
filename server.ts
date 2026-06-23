@@ -32,8 +32,8 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-// Port 3000 is default for AI Studio container, but dynamically maps process.env.PORT for Railway, Cloud Run, etc.
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+// Port configuration using process.env.PORT correctly, with no hardcoded port fallback like 3000
+const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
 // =========================================================================
 // 1. CHASSIS INITIALIZATION & HEALTH ROUTES (Registered FIRST before anything)
@@ -41,32 +41,27 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const app = express();
 const server = http.createServer(app);
 
-// Immediate responses (<10ms) for health checker probes
-app.get('/api/health', (req, res) => {
-  res.status(200).send('OK');
-});
+// Zero-overhead high-priority healthcheck routes registered first to bypass CORS, body-parsers, and any middleware errors
 app.get('/health', (req, res) => {
-  res.status(200).send('OK');
+  res.status(200).json({ status: "ok" });
+});
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: "ok" });
 });
 app.get('/healthz', (req, res) => {
-  res.status(200).send('OK');
+  res.status(200).json({ status: "ok" });
 });
 
-// Root route requirement for Railway health checks and production environments
-if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
-  app.get('/', (req, res) => {
-    res.status(200).send('OK');
-  });
-} else {
-  app.get('/', (req, res, next) => {
-    const accept = req.headers.accept || '';
-    if (!accept.includes('text/html')) {
-      res.status(200).send('OK');
-    } else {
-      next();
-    }
-  });
-}
+// Root route requirement for health checks: / → returns "DoTalk API Running"
+app.get('/', (req, res, next) => {
+  const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+  const accept = req.headers.accept || '';
+  if (isProd || !accept.includes('text/html')) {
+    res.status(200).send('DoTalk API Running');
+  } else {
+    next();
+  }
+});
 
 // =========================================================================
 // 2. IMMEDIATE PORT BINDING (Guarantees TCP connection check passes instantly)
@@ -104,12 +99,9 @@ async function startServerEngine() {
       'https://do-talk-ivory.vercel.app',
       'https://do-talk-amber.vercel.app',
       'https://dotalk-production.up.railway.app',
-      'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:4000',
-      'http://127.0.0.1:3000',
       'http://127.0.0.1:5173',
-      'http://10.0.2.2:3000',
       'http://10.0.2.2:5173'
     ];
 
