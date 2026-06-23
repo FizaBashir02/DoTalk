@@ -31,15 +31,26 @@ async function startServer() {
 
   const app = express();
 
-  // Zero-overhead high-priority healthcheck route registered first to bypass CORS, body-parsers, and any middleware errors
-  app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
-  });
+  // Zero-overhead high-priority healthcheck routes registered first to bypass CORS, body-parsers, and any middleware errors
   app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+    res.status(200).json({ status: "ok" });
+  });
+  app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: "ok" });
   });
   app.get('/healthz', (req, res) => {
-    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+    res.status(200).json({ status: "ok" });
+  });
+
+  // Root route requirement for health checks: / → returns "DoTalk API Running"
+  app.get('/', (req, res, next) => {
+    const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+    const accept = req.headers.accept || '';
+    if (isProd || !accept.includes('text/html')) {
+      res.status(200).send('DoTalk API Running');
+    } else {
+      next();
+    }
   });
 
   // 1. Comprehensive CORS Middleware
