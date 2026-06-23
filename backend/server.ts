@@ -32,6 +32,11 @@ async function startServer() {
 
   const app = express();
 
+  // Zero-overhead high-priority healthcheck route registered first to bypass CORS, body-parsers, and any middleware errors
+  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  });
+
   // 1. Comprehensive CORS Middleware
   app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -49,19 +54,35 @@ async function startServer() {
       'http://10.0.2.2:5173'
     ];
 
+    if (process.env.FRONTEND_URL) {
+      allowedOrigins.push(process.env.FRONTEND_URL);
+    }
+
     const isAllowed = origin && (
       allowedOrigins.includes(origin) || 
       origin.endsWith('.vercel.app') ||
+      origin.endsWith('.railway.app') ||
       /^http:\/\/localhost(:\d+)?$/.test(origin) ||
       /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin) ||
-      /^http:\/\/10\.0\.2\.2(:\d+)?$/.test(origin)
+      /^http:\/\/10\.0\.2\.2(:\d+)?$/.test(origin) ||
+      origin.startsWith('capacitor://') ||
+      origin.startsWith('chrome-extension://')
     );
 
     if (isAllowed) {
       res.setHeader('Access-Control-Allow-Origin', origin);
     } else {
-      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+      if (process.env.FRONTEND_URL) {
+        res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL);
+      } else {
+        if (process.env.NODE_ENV !== 'production' || !origin) {
+          res.setHeader('Access-Control-Allow-Origin', origin || '*');
+        } else {
+          res.setHeader('Access-Control-Allow-Origin', 'null');
+        }
+      }
     }
+
     
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
