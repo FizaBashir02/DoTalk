@@ -6,7 +6,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "node dist/server.cjs",
+    "startCommand": "sh start.sh",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",

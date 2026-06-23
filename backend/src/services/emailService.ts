@@ -1,9 +1,30 @@
 import nodemailer from 'nodemailer';
 import dns from 'dns';
+import { promisify } from 'util';
 
 // Ensure DNS lookup prefers IPv4 globally to circumvent ENETUNREACH IPv6 routing errors on platforms like Railway
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
+}
+
+const lookupAsync = promisify(dns.lookup);
+
+/**
+ * Resolves a hostname to its IPv4 address to robustly bypass any glibc getaddrinfo IPv6 network-unreachable errors.
+ */
+async function resolveHostToIPv4(host: string): Promise<string> {
+  // If host is already an IP address, return it
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':')) {
+    return host;
+  }
+  try {
+    const res = await lookupAsync(host, { family: 4 });
+    console.log(`[Email Service DNS] Successfully resolved host "${host}" to IPv4 address: "${res.address}"`);
+    return res.address;
+  } catch (err: any) {
+    console.warn(`[Email Service DNS Warning] Failed to resolve host "${host}" to IPv4: ${err.message}. Custom resolver falling back to raw hostname.`);
+    return host;
+  }
 }
 
 export interface EmailDeliveryResult {
@@ -55,9 +76,9 @@ export function validateEmailAddress(email: string): string {
 /**
  * Helper to build high-compatibility Nodemailer transport with forced IPv4
  */
-function createSmtpTransporter(host: string, port: number, secure: boolean, user: string, pass: string) {
+function createSmtpTransporter(resolvedHost: string, originalHost: string, port: number, secure: boolean, user: string, pass: string) {
   return nodemailer.createTransport({
-    host,
+    host: resolvedHost,
     port,
     secure,
     requireTLS: port === 587,
@@ -66,7 +87,8 @@ function createSmtpTransporter(host: string, port: number, secure: boolean, user
       pass
     },
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false,
+      servername: originalHost // Crucial for TLS handshake alignment with the certificate on the resolved IP!
     },
     connectionTimeout: 10000, // 10 seconds timeout
     greetingTimeout: 10000,
@@ -94,6 +116,7 @@ export async function sendVerificationEmail(
   const recipientEmail = validateEmailAddress(email);
 
   const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const resolvedHost = await resolveHostToIPv4(smtpHost);
   const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
   const smtpUser = process.env.SMTP_USER!;
   const smtpPass = process.env.SMTP_PASS!;
@@ -121,11 +144,11 @@ export async function sendVerificationEmail(
     </div>
   `;
 
-  console.log(`[Email Service] SMTP SMTP Attempt: Sending verification code to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure})`);
+  console.log(`[Email Service] SMTP SMTP Attempt: Sending verification code to <${recipientEmail}> via ${smtpHost}:${smtpPort} (Secure SSL/TLS: ${smtpSecure}, resolved IP: ${resolvedHost})`);
 
   // Attempt 1: primary configuration
   try {
-    const transporter = createSmtpTransporter(smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
+    const transporter = createSmtpTransporter(resolvedHost, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
     const info = await transporter.sendMail({
       from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
       to: recipientEmail,
@@ -150,7 +173,7 @@ export async function sendVerificationEmail(
     console.log(`[Email Service Fallback] Initiating automated fallback SMTP attempt to <${recipientEmail}> via ${smtpHost}:${fallbackPort} (Secure: ${fallbackSecure})`);
     
     try {
-      const fallbackTransporter = createSmtpTransporter(smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
+      const fallbackTransporter = createSmtpTransporter(resolvedHost, smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
       const info = await fallbackTransporter.sendMail({
         from: `"${process.env.SMTP_FROM_NAME || 'DoTalk Verification'}" <${smtpFrom}>`,
         to: recipientEmail,
@@ -183,6 +206,7 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
     validateEmailConfig();
     const cleanIn = validateEmailAddress(recipientEmail);
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const resolvedHost = await resolveHostToIPv4(smtpHost);
     const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
     const smtpUser = process.env.SMTP_USER!;
     const smtpPass = process.env.SMTP_PASS!;
@@ -206,7 +230,7 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
     `;
 
     try {
-      const transporter = createSmtpTransporter(smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
+      const transporter = createSmtpTransporter(resolvedHost, smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass);
       const info = await transporter.sendMail({
         from: `SMTP Test <${smtpFrom}>`,
         to: cleanIn,
@@ -220,7 +244,7 @@ export async function sendTestEmail(recipientEmail: string): Promise<{ success: 
       const fallbackPort = smtpPort === 465 ? 587 : 465;
       const fallbackSecure = fallbackPort === 465;
 
-      const fallbackTransporter = createSmtpTransporter(smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
+      const fallbackTransporter = createSmtpTransporter(resolvedHost, smtpHost, fallbackPort, fallbackSecure, smtpUser, smtpPass);
       const info = await fallbackTransporter.sendMail({
         from: `SMTP Test <${smtpFrom}>`,
         to: cleanIn,
