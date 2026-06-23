@@ -33,7 +33,13 @@ async function startServer() {
   const app = express();
 
   // Zero-overhead high-priority healthcheck route registered first to bypass CORS, body-parsers, and any middleware errors
-  app.get(['/api/health', '/health', '/healthz'], (req, res) => {
+  app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  });
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
+  });
+  app.get('/healthz', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'Healthy', serverTime: new Date().toISOString() });
   });
 
