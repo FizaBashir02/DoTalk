@@ -36,6 +36,7 @@ export interface IOTP {
   _id: string;
   email: string;
   codeHash: string; // bcrypt hash
+  codePlain?: string; // Opt raw OTP code for development fallback diagnostics
   expiresAt: string; // ISO string
   verified: boolean;
   attempts: number;
@@ -389,11 +390,12 @@ class DatabaseManager {
   }
 
   // OTP Helpers
-  public createOTP(email: string, codeHash: string, expiresAt: Date, lastSentAt?: string, lockoutUntil?: string, pendingName?: string): IOTP {
+  public createOTP(email: string, codeHash: string, expiresAt: Date, lastSentAt?: string, lockoutUntil?: string, pendingName?: string, codePlain?: string): IOTP {
     const newOtp: IOTP = {
       _id: 'otp_' + Math.random().toString(36).substring(2, 11),
       email,
       codeHash,
+      codePlain,
       expiresAt: expiresAt.toISOString(),
       verified: false,
       attempts: 0,

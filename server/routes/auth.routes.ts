@@ -107,7 +107,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       expiresAt,
       new Date().toISOString(),
       undefined,
-      isPasswordMode ? undefined : fullName.trim()
+      isPasswordMode ? undefined : fullName.trim(),
+      otpCode
     );
 
     // Print generated OTP code to server log as a diagnostic developer fallback
@@ -173,7 +174,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiration
         const otpSalt = await bcrypt.genSalt(10);
         const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
-        db.createOTP(user.email, hashedOtp, expiresAt);
+        db.createOTP(user.email, hashedOtp, expiresAt, new Date().toISOString(), undefined, undefined, otpCode);
+
+        // Print generated OTP code to server log as a diagnostic developer fallback
+        console.log(`\n================================================================`);
+        console.log(`[DoTalk Diagnostic] OTP generated for email: ${user.email}`);
+        console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
+        console.log(`================================================================\n`);
 
         // Ensure email is sent before responding
         let emailSent = false;
@@ -269,7 +276,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       // Save hashed OTP in temporary DB
       const otpSalt = await bcrypt.genSalt(10);
       const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
-      db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString());
+      db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, undefined, otpCode);
+
+      // Print generated OTP code to server log as a diagnostic developer fallback
+      console.log(`\n================================================================`);
+      console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
+      console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
+      console.log(`================================================================\n`);
 
       // Ensure email is sent before responding
       let emailSent = false;
@@ -468,7 +481,13 @@ router.post('/resend-otp', async (req: Request, res: Response): Promise<void> =>
     const hashedOtp = await bcrypt.hash(otpCode, otpSalt);
     
     // Save new OTP keeping pending name intact if exists
-    db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, existingOtp?.pendingName);
+    db.createOTP(emailTrimmed, hashedOtp, expiresAt, new Date().toISOString(), undefined, existingOtp?.pendingName, otpCode);
+
+    // Print generated OTP code to server log as a diagnostic developer fallback
+    console.log(`\n================================================================`);
+    console.log(`[DoTalk Diagnostic] OTP generated for email: ${emailTrimmed}`);
+    console.log(`[DoTalk Diagnostic] CODE: ${otpCode}`);
+    console.log(`================================================================\n`);
 
     // Ensure email is sent before responding
     let emailSent = false;
@@ -547,6 +566,27 @@ router.post('/test-email', async (req: Request, res: Response): Promise<void> =>
       error: `Server failed to complete SMTP test: ${error.message}`
     });
   }
+});
+
+// DEBUG ENDPOINT TO FETCH LATEST OTP (To support environments with blocked SMTP outgoing traffic)
+router.get('/debug-otp/:email', (req: Request, res: Response): void => {
+  const { email } = req.params;
+  if (!email) {
+    res.status(400).json({ error: 'Email parameter is required' });
+    return;
+  }
+  const cleanEmail = email.toLowerCase().trim();
+  const dbOtp = db.getOTPByEmail(cleanEmail);
+  if (!dbOtp) {
+    res.status(404).json({ error: 'No active OTP verification code found for this email address.' });
+    return;
+  }
+  res.status(200).json({
+    email: cleanEmail,
+    code: dbOtp.codePlain || '(Code only available in server logs)',
+    expiresAt: dbOtp.expiresAt,
+    verified: dbOtp.verified
+  });
 });
 
 export default router;

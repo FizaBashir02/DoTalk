@@ -13,7 +13,12 @@ export function getBackendUrl(): string {
     return envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
   }
 
-  // 2. Route always to the live Railway API gateway for production/mobile fallback
+  // 2. Fallback to current browser location origin if running under development preview
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin;
+  }
+
+  // 3. Route always to the live Railway API gateway for production/mobile fallback
   return 'https://dotalk-production.up.railway.app';
 }
 
