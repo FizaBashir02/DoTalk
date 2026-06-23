@@ -3,11 +3,13 @@ import { io, Socket } from 'socket.io-client';
 export function getBackendUrl(): string {
   const meta = import.meta as any;
 
-  // 1. Check for explicit environment-based configuration from VITE environment variables
+  // 1. Check for explicit environment-based configuration from VITE / process environment variables
   const envUrl = 
     meta.env?.VITE_API_URL || 
     meta.env?.VITE_API_BASE_URL || 
-    meta.env?.VITE_BACKEND_URL;
+    meta.env?.VITE_BACKEND_URL ||
+    (typeof process !== 'undefined' && process.env?.BACKEND_URL) ||
+    (typeof process !== 'undefined' && process.env?.VITE_API_URL);
     
   if (envUrl) {
     return envUrl.endsWith('/') ? envUrl.slice(0, -1) : envUrl;
@@ -28,7 +30,7 @@ export function getBackendUrl(): string {
     }
   }
 
-  // 3. Route always to the live production API Gateway (e.g., Railway/Cloud Run) for packaged Android APK clients
+  // 3. Dynamic production fallback
   return 'https://dotalk-production.up.railway.app';
 }
 
@@ -83,7 +85,13 @@ export async function apiFetch(
 
 export function getSocketUrl(): string {
   const meta = import.meta as any;
-  const envWs = meta.env?.VITE_WS_URL || meta.env?.VITE_SOCKET_URL;
+  const envWs = 
+    meta.env?.VITE_WS_URL || 
+    meta.env?.VITE_SOCKET_URL ||
+    meta.env?.WS_URL ||
+    (typeof process !== 'undefined' && process.env?.WS_URL) ||
+    (typeof process !== 'undefined' && process.env?.VITE_WS_URL);
+    
   if (envWs) {
     return envWs.endsWith('/') ? envWs.slice(0, -1) : envWs;
   }

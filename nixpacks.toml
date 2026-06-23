@@ -1,0 +1,19 @@
+# Nixpacks configuration ensuring safe, secure, and warning-free builds
+[providers]
+# Let nixpacks auto-detect node, but specify explicit build steps
+
+[phases.setup]
+# Use safe Node.js 20 environment packages
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+# Ensure clean and predictable clean npm install
+cmds = ["npm ci --legacy-peer-deps"]
+
+[phases.build]
+# Standard compilation phase
+cmds = ["npm run build"]
+
+[start]
+# Safe startup
+cmd = "sh start.sh"
