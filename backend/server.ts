@@ -19,8 +19,8 @@ import userRouter from './routes/user.routes.js';
 import chatRouter from './routes/chat.routes.js';
 import statusRouter from './routes/status.routes.js';
 
-// Port configuration strictly configured to port 3000 as mandated by environment constraints
-const PORT = 3000;
+// Port configuration dynamically maps process.env.PORT with 3000 as fallback
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup

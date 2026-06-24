@@ -32,8 +32,8 @@ import userRouter from './server/routes/user.routes.js';
 import chatRouter from './server/routes/chat.routes.js';
 import statusRouter from './server/routes/status.routes.js';
 
-// Port configuration strictly configured to port 3000 as mandated by environment constraints
-const PORT = 3000;
+// Port configuration dynamically maps process.env.PORT with 3000 as fallback
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // =========================================================================
 // 1. CHASSIS INITIALIZATION & HEALTH ROUTES (Registered FIRST before anything)
@@ -93,25 +93,21 @@ app.use((req, res, next) => {
 // Zero-overhead high-priority healthcheck routes registered first to bypass body-parsers and any downstream errors
 app.get('/health', (req, res) => {
   res.status(200).json({
-    status: "ok",
-    service: "DoTalk",
-    timestamp: Date.now()
+    status: "ok"
   });
 });
 app.get('/api/health', (req, res) => {
   res.status(200).json({
-    status: "ok",
-    service: "DoTalk",
-    timestamp: Date.now()
+    status: "ok"
   });
 });
 app.get('/healthz', (req, res) => {
   res.status(200).json({
-    status: "ok",
-    service: "DoTalk",
-    timestamp: Date.now()
+    status: "ok"
   });
 });
+
+console.log("HEALTHCHECK ROUTE REGISTERED");
 
 // Root route requirement for health checks: / → returns "DoTalk API Running"
 app.get('/', (req, res, next) => {
@@ -128,6 +124,7 @@ app.get('/', (req, res, next) => {
 // 2. IMMEDIATE PORT BINDING (Guarantees TCP connection check passes instantly)
 // =========================================================================
 server.listen(PORT, '0.0.0.0', () => {
+  console.log(`SERVER LISTENING ON PORT: ${PORT}`);
   console.log(`=======================================================`);
   console.log(`   🚀 [Railway Production Stable Setup Activated]`);
   console.log(`   Port Binding Confirmed: 0.0.0.0:${PORT}`);
