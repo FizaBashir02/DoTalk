@@ -5,6 +5,7 @@ import AuthScreens from './components/AuthScreens.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 import ProfileTab from './components/ProfileTab.jsx';
 import SettingsTab from './components/SettingsTab.jsx';
+import StartupDiagnostics from './components/StartupDiagnostics.jsx';
 import { apiFetch, getSocketConnection } from './utils/api.js';
 
 import {
@@ -56,6 +57,7 @@ export default function App() {
    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
    const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
    const [showArchivedOnly, setShowArchivedOnly] = useState(false);
+   const [diagnosticsPassed, setDiagnosticsPassed] = useState(false);
 
    const showToast = (text: string, type: 'success' | 'error' = 'success') => {
      setToast({ text, type });
@@ -672,23 +674,28 @@ export default function App() {
       localStreamRef.current = stream;
       setLocalStream(stream);
 
+      const iceServersList = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        // Production TURN Server Placeholders (Crucial for 4G/5G mobile carriers and strict NAT traversal)
+        {
+          urls: 'turn:your-turn-server.com:3478',
+          username: 'production_user',
+          credential: 'production_secure_credential_here'
+        },
+        {
+          urls: 'turns:your-turn-server.com:5349',
+          username: 'production_user',
+          credential: 'production_secure_credential_here'
+        }
+      ].filter(server => {
+        const urlStr = Array.isArray(server.urls) ? server.urls[0] : (server.urls || '');
+        return !urlStr.includes('your-turn-server.com');
+      });
+
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          // Production TURN Server Placeholders (Crucial for 4G/5G mobile carriers and strict NAT traversal)
-          {
-            urls: 'turn:your-turn-server.com:3478',
-            username: 'production_user',
-            credential: 'production_secure_credential_here'
-          },
-          {
-            urls: 'turns:your-turn-server.com:5349',
-            username: 'production_user',
-            credential: 'production_secure_credential_here'
-          }
-        ]
+        iceServers: iceServersList
       });
       peerConnectionRef.current = pc;
 
@@ -1131,7 +1138,9 @@ export default function App() {
 
   return (
     <PhoneFrame theme={themeSetting}>
-      {!token || !user ? (
+      {!diagnosticsPassed ? (
+        <StartupDiagnostics onDiagnosticsPassed={() => setDiagnosticsPassed(true)} theme={themeSetting} />
+      ) : !token || !user ? (
         <AuthScreens onLoginSuccess={handleLoginSuccess} theme={themeSetting} />
       ) : selectedChat ? (
         <ChatWindow

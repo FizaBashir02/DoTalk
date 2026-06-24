@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Mail, User, ArrowRight, ArrowLeft } from 'lucide-react';
-import { apiFetch } from '../utils/api.js';
+import { Check, Mail, User, ArrowRight, ArrowLeft, Activity, Wifi, Globe, Server, RefreshCw, X, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { apiFetch, runConnectivityDiagnostics } from '../utils/api.js';
 
 interface AuthScreensProps {
   onLoginSuccess: (token: string, user: any) => void;
@@ -27,6 +27,11 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
   const [errorText, setErrorText] = useState('');
   const [successText, setSuccessText] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Connection Diagnostics States
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagResult, setDiagResult] = useState<any>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   // Ref array for passcode auto-focus
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -111,8 +116,9 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
       } else {
         setErrorText(data.error || 'Registration failed');
       }
-    } catch (e) {
-      setErrorText('Server connectivity issues');
+    } catch (e: any) {
+      const diag = await runConnectivityDiagnostics();
+      setErrorText(diag.errorMessage || 'Server connectivity issues (Connection failed).');
     } finally {
       setLoading(false);
     }
@@ -206,10 +212,24 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
       } else {
         setErrorText(data.error || 'Email address not found');
       }
-    } catch (e) {
-      setErrorText('Connection error');
+    } catch (e: any) {
+      const diag = await runConnectivityDiagnostics();
+      setErrorText(diag.errorMessage || 'Connection error. The server is currently unreachable.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRunDiagnostics = async () => {
+    setDiagLoading(true);
+    setShowDiagnostics(true);
+    try {
+      const res = await runConnectivityDiagnostics();
+      setDiagResult(res);
+    } catch (err) {
+      console.error('[DoTalk diagnostics failed]', err);
+    } finally {
+      setDiagLoading(false);
     }
   };
 
@@ -371,8 +391,18 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
               <p className="text-sm opacity-80 mb-6 text-app-text-secondary">Enter your registered email address. We will send you a 6-digit confirmation code. No passwords required.</p>
 
               {errorText && (
-                <div className="p-3 mb-4 text-xs font-semibold bg-red-100 text-red-600 rounded-lg border border-red-200">
-                  ⚠️ {errorText}
+                <div className="p-3 mb-4 text-xs font-semibold bg-red-100/90 text-red-600 rounded-lg border border-red-200 flex flex-col gap-2">
+                  <div className="flex items-start gap-1.5">
+                    <span className="shrink-0 text-base">⚠️</span>
+                    <span>{errorText}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRunDiagnostics}
+                    className="self-start text-[10px] uppercase font-bold tracking-wider text-red-700 bg-red-200/60 hover:bg-red-200/90 px-2 py-1 rounded cursor-pointer mt-1 flex items-center gap-1 transition-colors"
+                  >
+                    <Activity className="w-3 h-3" /> Run Connection Diagnostics
+                  </button>
                 </div>
               )}
               {successText && (
@@ -446,8 +476,18 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
               <p className="text-xs opacity-80 mb-4 text-app-text-secondary">Register securely with your Name and Email. There are no passwords to remember!</p>
 
               {errorText && (
-                <div className="p-2.5 mb-3 text-xs font-semibold bg-red-100 text-red-600 rounded-lg border border-red-200">
-                  ⚠️ {errorText}
+                <div className="p-2.5 mb-3 text-xs font-semibold bg-red-100/90 text-red-600 rounded-lg border border-red-200 flex flex-col gap-2">
+                  <div className="flex items-start gap-1.5">
+                    <span className="shrink-0 text-base">⚠️</span>
+                    <span>{errorText}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRunDiagnostics}
+                    className="self-start text-[10px] uppercase font-bold tracking-wider text-red-700 bg-red-200/60 hover:bg-red-200/90 px-2 py-1 rounded cursor-pointer mt-1 flex items-center gap-1 transition-colors"
+                  >
+                    <Activity className="w-3 h-3" /> Run Connection Diagnostics
+                  </button>
                 </div>
               )}
               {successText && (
@@ -567,6 +607,202 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
         )}
 
       </AnimatePresence>
+
+      {/* Network & Server Diagnostics Modal */}
+      {showDiagnostics && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className={`w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl p-5 flex flex-col gap-4 text-left ${
+              theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-slate-100' : 'bg-white text-slate-800 border border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-emerald-500 animate-pulse" />
+                <h3 className="font-bold text-base">Network & Server Diagnostics</h3>
+              </div>
+              <button
+                onClick={() => setShowDiagnostics(false)}
+                className="p-1 hover:bg-neutral-500/10 rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {diagLoading ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
+                <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+                <span className="text-xs font-semibold">Running diagnostic probes...</span>
+              </div>
+            ) : diagResult ? (
+              <div className="flex flex-col gap-4">
+                {/* 1. Device Connection Status */}
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-sky-500/10 shrink-0">
+                    <Wifi className="w-4 h-4 text-sky-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-75">Device Connectivity</h4>
+                    <p className="text-sm font-semibold flex items-center gap-1.5 mt-0.5">
+                      {diagResult.isOnline ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                          <span>Online (Local Wifi/Cellular OK)</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-red-500 inline-block animate-ping" />
+                          <span className="text-red-500">Device Offline</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Vite Configuration Status */}
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
+                    <Globe className="w-4 h-4 text-indigo-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-75">API Configured URL</h4>
+                    <p className="text-xs font-mono break-all mt-1 bg-black/10 p-1.5 rounded select-all">
+                      {diagResult.apiUrl || <span className="italic text-red-500 font-sans">Unconfigured (empty)</span>}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <span className="text-[10px] bg-neutral-500/10 px-2 py-0.5 rounded font-medium">
+                        Source: {diagResult.apiUrlSource}
+                      </span>
+                      {diagResult.isLocalhost && (
+                        <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded font-bold">
+                          ⚠️ Localhost
+                        </span>
+                      )}
+                      {diagResult.apiUrl && diagResult.apiUrl.startsWith('http://') && (
+                        <span className="text-[10px] bg-red-500/10 text-red-500 px-2 py-0.5 rounded font-bold">
+                          HTTP cleartext
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Backend Reachability */}
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/10 shrink-0">
+                    <Server className="w-4 h-4 text-emerald-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-75">Backend Server</h4>
+                    <p className="text-sm font-semibold flex items-center gap-1.5 mt-0.5">
+                      {diagResult.backendReachable ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                          <span>Reachable (HTTP {diagResult.backendHttpStatus || '200'} OK)</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-red-500 inline-block animate-ping" />
+                          <span className="text-red-500">Unreachable (HTTP failed)</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Classification Analysis Alert */}
+                <div className={`p-3.5 rounded-xl border flex gap-3 ${
+                  diagResult.errorClassification === 'OK'
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400'
+                }`}>
+                  <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs">
+                    <h5 className="font-extrabold uppercase tracking-wider">
+                      Diagnosis: {diagResult.errorClassification.replace(/_/g, ' ')}
+                    </h5>
+                    <p className="mt-1 leading-relaxed opacity-90">
+                      {diagResult.errorMessage || 'All checkmarks passed successfully! The application can communicate with the backend smoothly.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action steps */}
+                {diagResult.errorClassification !== 'OK' && (
+                  <div className="bg-amber-500/5 border border-amber-500/15 p-3 rounded-xl flex flex-col gap-1 text-[11px] leading-relaxed">
+                    <span className="font-extrabold text-amber-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Recommended Solution
+                    </span>
+                    {diagResult.errorClassification === 'INVALID_URL' && (
+                      <ol className="list-decimal pl-4 flex flex-col gap-1">
+                        <li>Create a <code className="bg-black/10 px-1 rounded">.env</code> file in the project's root folder.</li>
+                        <li>Add <code className="bg-black/10 px-1 rounded">BACKEND_URL=https://your-backend.railway.app</code>.</li>
+                        <li>Run <code className="bg-black/10 px-1 rounded">npm run build</code> to bake this URL into the production bundle.</li>
+                      </ol>
+                    )}
+                    {diagResult.errorClassification === 'LOCAL_OFFLINE' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                        <li>Ensure the device has Wi-Fi or cellular mobile data enabled.</li>
+                        <li>Check if your carrier or private DNS is blocking requests.</li>
+                      </ul>
+                    )}
+                    {diagResult.errorClassification === 'CLEARTEXT_BLOCKED' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                        <li>Android bans plain HTTP cleartext in production. Change the backend URL protocol from <code className="bg-black/10 px-1 rounded">http://</code> to a secure, SSL-encrypted <code className="bg-black/10 px-1 rounded">https://</code> protocol.</li>
+                      </ul>
+                    )}
+                    {diagResult.errorClassification === 'TIMEOUT' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                        <li>Verify if your Railway backend is sleeping, crashed, or currently starting up.</li>
+                        <li>Railway cold starts can take 20-30 seconds. Wait a moment and re-test.</li>
+                      </ul>
+                    )}
+                    {diagResult.errorClassification === 'SSL_OR_DNS_ERROR' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                        <li>Verify there are no typos in your backend domain name.</li>
+                        <li>If using a custom domain, ensure your SSL certificate is correctly provisioned (non-expired and non-self-signed).</li>
+                      </ul>
+                    )}
+                    {diagResult.errorClassification === 'BACKEND_OFFLINE' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                        <li>The server is online but returned an error response. Check your Railway service logs to identify server crashes.</li>
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-2.5 mt-2">
+                  <button
+                    onClick={handleRunDiagnostics}
+                    className="flex-1 h-10 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow transition-all duration-150"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Re-test Connection
+                  </button>
+                  <button
+                    onClick={() => setShowDiagnostics(false)}
+                    className="px-4 h-10 bg-neutral-500/10 hover:bg-neutral-500/20 font-bold rounded-xl text-xs uppercase tracking-wider cursor-pointer transition-all duration-150"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-6 gap-2">
+                <p className="text-xs">No diagnostics loaded. Click the button to check connectivity.</p>
+                <button
+                  onClick={handleRunDiagnostics}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg font-bold text-xs"
+                >
+                  Start Scan
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+
     </div>
   );
 }
