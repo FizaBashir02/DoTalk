@@ -676,7 +676,18 @@ export default function App() {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' }
+          { urls: 'stun:stun2.l.google.com:19302' },
+          // Production TURN Server Placeholders (Crucial for 4G/5G mobile carriers and strict NAT traversal)
+          {
+            urls: 'turn:your-turn-server.com:3478',
+            username: 'production_user',
+            credential: 'production_secure_credential_here'
+          },
+          {
+            urls: 'turns:your-turn-server.com:5349',
+            username: 'production_user',
+            credential: 'production_secure_credential_here'
+          }
         ]
       });
       peerConnectionRef.current = pc;

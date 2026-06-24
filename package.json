@@ -12,9 +12,11 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "install:mobile": "cd mobile && npm install",
-    "build:android": "cd mobile/android && ./gradlew assembleRelease",
-    "mobile:start": "cd mobile && npm start"
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
+    "cap:copy": "npx cap copy android",
+    "android:debug": "cd android && ./gradlew assembleDebug",
+    "android:release": "cd android && ./gradlew assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
