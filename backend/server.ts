@@ -19,8 +19,8 @@ import userRouter from './routes/user.routes.js';
 import chatRouter from './routes/chat.routes.js';
 import statusRouter from './routes/status.routes.js';
 
-// Port configuration dynamically maps process.env.PORT for Railway, Cloud Run, etc.
-const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
+// Port configuration strictly configured to port 3000 as mandated by environment constraints
+const PORT = 3000;
 
 async function startServer() {
   // Trigger MongoDB verification asynchronously in the background so it doesn't block server listen/startup
@@ -30,28 +30,6 @@ async function startServer() {
   });
 
   const app = express();
-
-  // Zero-overhead high-priority healthcheck routes registered first to bypass CORS, body-parsers, and any middleware errors
-  app.get('/health', (req, res) => {
-    res.status(200).json({ status: "ok" });
-  });
-  app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: "ok" });
-  });
-  app.get('/healthz', (req, res) => {
-    res.status(200).json({ status: "ok" });
-  });
-
-  // Root route requirement for health checks: / → returns "DoTalk API Running"
-  app.get('/', (req, res, next) => {
-    const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
-    const accept = req.headers.accept || '';
-    if (isProd || !accept.includes('text/html')) {
-      res.status(200).send('DoTalk API Running');
-    } else {
-      next();
-    }
-  });
 
   // 1. Comprehensive CORS Middleware
   app.use((req, res, next) => {
@@ -75,6 +53,7 @@ async function startServer() {
       allowedOrigins.includes(origin) || 
       origin.endsWith('.vercel.app') ||
       origin.endsWith('.railway.app') ||
+      origin.endsWith('.run.app') ||
       /^http:\/\/localhost(:\d+)?$/.test(origin) ||
       /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin) ||
       /^http:\/\/10\.0\.2\.2(:\d+)?$/.test(origin) ||
@@ -96,18 +75,38 @@ async function startServer() {
       }
     }
 
-    
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    
-    // Handle preflight OPTIONS request
+
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
       return;
     }
-    
+
     next();
+  });
+
+  // Zero-overhead high-priority healthcheck routes registered first to bypass body-parsers and any downstream errors
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+  app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+  app.get('/healthz', (req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  // Root route requirement for health checks: / → returns "DoTalk API Running"
+  app.get('/', (req, res, next) => {
+    const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+    const accept = req.headers.accept || '';
+    if (isProd || !accept.includes('text/html')) {
+      res.status(200).send('DoTalk API Running');
+    } else {
+      next();
+    }
   });
 
   app.use(express.json({ limit: '100mb' }));

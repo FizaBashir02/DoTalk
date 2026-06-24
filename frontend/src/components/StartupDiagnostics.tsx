@@ -50,182 +50,56 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
     setResults(null);
     setSystemLogs([]);
     
-    addLog('Starting full-stack production diagnostics audit...');
-    const url = getBackendUrl();
-    const wsUrl = getSocketUrl();
-    
-    addLog(`Configured Backend API URL: "${url || 'EMPTY'}"`);
-    addLog(`Configured WebSockets URL: "${wsUrl || 'EMPTY'}"`);
-    addLog(`Capacitor Platform detected: "${Capacitor.getPlatform()}"`);
-    addLog(`Vite Build Mode: "${import.meta.env.MODE || 'unknown'}"`);
-
-    // Step 1: Base URL Validation
-    if (!url || url.trim() === '') {
-      addLog('Error: Backend URL is completely missing.');
-      setHealthStatus('failed');
-      setSocketStatus('failed');
-      setResults({
-        apiUrl: url,
-        isUrlValid: false,
-        errorClassification: 'API URL Missing',
-        errorMessage: 'VITE_API_URL environment variable is not defined or is empty in the production build.',
-        timestamp: new Date().toISOString()
-      });
-      setLoading(false);
-      return;
-    }
-
-    const isValid = url.startsWith('http://') || url.startsWith('https://');
-    if (!isValid) {
-      addLog(`Error: Backend URL "${url}" has an invalid protocol format.`);
-      setHealthStatus('failed');
-      setSocketStatus('failed');
-      setResults({
-        apiUrl: url,
-        isUrlValid: false,
-        errorClassification: 'API URL Invalid',
-        errorMessage: 'The loaded API URL lacks a valid protocol. It must start with http:// or https://.',
-        timestamp: new Date().toISOString()
-      });
-      setLoading(false);
-      return;
-    }
-
-    // Step 2: GET /health check
-    addLog('Sending HTTP GET request to /health endpoint...');
-    setDiagnosingText('Probing API health check...');
-    
-    let backendReachable = false;
-    let backendHttpStatus: number | null = null;
-    let errorClassification: string = 'OK';
-    let errorMessage: string | null = null;
-    let startHttp = Date.now();
-
+    addLog('Starting automated production diagnostics check...');
     try {
-      const response = await fetch(`${url}/health`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' }
-      });
-      const latency = Date.now() - startHttp;
-      backendHttpStatus = response.status;
-      backendReachable = response.ok;
-      addLog(`HTTP /health response received in ${latency}ms. Status code: ${response.status}`);
-    } catch (err: any) {
-      const latency = Date.now() - startHttp;
-      addLog(`HTTP /health probe failed after ${latency}ms. Error details: ${err.message || err}`);
+      const report = await runConnectivityDiagnostics();
       
-      // Let's check external internet reachability
-      let externalInternetOk = false;
-      try {
-        const dnsTest = await fetch('https://dns.google/resolve?name=google.com', { method: 'GET' });
-        externalInternetOk = dnsTest.ok;
-        addLog('Device has internet connection (Public DNS query was successful).');
-      } catch (dnsErr) {
-        externalInternetOk = false;
-        addLog('Device seems to have no internet access (Public DNS query failed).');
+      addLog(`Configured Backend API URL: "${report.apiUrl || 'EMPTY'}"`);
+      addLog(`Source: "${report.apiUrlSource}"`);
+      addLog(`Vite Build Mode: "${report.buildMode || 'unknown'}"`);
+      addLog(`Capacitor Platform: "${report.capacitorPlatform || 'web'}"`);
+      addLog(`Internet state: ${report.isOnline ? 'Online' : 'Offline'}`);
+      addLog(`External internet reachability: ${report.externalInternetOk ? 'YES' : 'NO'}`);
+      addLog(`Tested Fetch URL: "${report.fetchUrl}"`);
+      addLog(`HTTP Status: ${report.backendHttpStatus !== null ? report.backendHttpStatus : 'No Response'}`);
+      
+      if (report.responseBody) {
+        addLog(`Response Body: "${report.responseBody.substring(0, 200)}"`);
+      }
+      if (report.exceptionMessage) {
+        addLog(`Exception: "${report.exceptionMessage}"`);
+      }
+      if (report.exceptionStack) {
+        addLog(`Exception stack: "${report.exceptionStack.substring(0, 200)}..."`);
       }
 
-      if (!externalInternetOk) {
-        errorClassification = 'DNS Resolution Failed';
-        errorMessage = 'Device DNS lookup failed completely. Please verify that your phone is connected to cellular data or Wifi.';
-      } else if (latency > 6000) {
-        errorClassification = 'Railway Timeout';
-        errorMessage = 'The server did not respond within the timeframe. This usually indicates Railway cold starts, network routing congestion, or server overload.';
-      } else if (err.message && (err.message.includes('CORS') || err.message.includes('cors') || err.message.includes('Allowed origins') || err.message.includes('Origin'))) {
-        errorClassification = 'CORS Blocked';
-        errorMessage = 'The Railway server is online, but its CORS configuration explicitly rejected the request origin from this Capacitor WebView app.';
-      } else if (url.startsWith('http://') && Capacitor.getPlatform() === 'android') {
-        errorClassification = 'SSL Certificate Error';
-        errorMessage = 'Cleartext HTTP connection blocked. Android security policies prohibit plain http:// connections. Use secure, encrypted https://.';
+      setHealthStatus(report.backendReachable ? 'success' : 'failed');
+      setSocketStatus(report.socketReachable ? 'success' : 'failed');
+      
+      setResults(report);
+      setLoading(false);
+
+      if (report.errorClassification === 'OK' && report.socketReachable) {
+        addLog('All diagnostics passed! Proceeding to application...');
+        setTimeout(() => {
+          onDiagnosticsPassed();
+        }, 1200);
       } else {
-        errorClassification = 'Railway Server Offline';
-        errorMessage = 'The Railway backend is unreachable or under maintenance. Check if the server is deployed and running on Railway.';
+        addLog(`Diagnostics finished with Error category: "${report.errorClassification}"`);
       }
-    }
-
-    if (backendReachable) {
-      setHealthStatus('success');
-      addLog('Backend API health check passed!');
-    } else {
+    } catch (err: any) {
+      addLog(`Diagnostics crashed with fatal exception: ${err.message}`);
       setHealthStatus('failed');
-      if (errorClassification === 'OK') {
-        errorClassification = 'Railway Server Offline';
-        errorMessage = `Server is online but returned unexpected HTTP Status: ${backendHttpStatus}. It might be misconfigured or starting up.`;
-      }
-    }
-
-    // Step 3: Socket.IO check
-    addLog(`Testing WebSockets connection over transports: ["websocket", "polling"] on ${wsUrl}...`);
-    setDiagnosingText('Testing active Socket.IO connection...');
-    
-    let socketReachable = false;
-    let socketErrorDetail: string | null = null;
-
-    if (backendReachable) {
-      try {
-        // We'll import socket.io-client dynamically to test
-        const { io } = await import('socket.io-client');
-        const testSocket = io(wsUrl, {
-          transports: ['websocket', 'polling'],
-          timeout: 6000,
-          reconnection: false
-        });
-
-        const socketConnectPromise = new Promise<boolean>((resolve) => {
-          testSocket.on('connect', () => {
-            resolve(true);
-          });
-          testSocket.on('connect_error', (err) => {
-            socketErrorDetail = err.message;
-            addLog(`Socket.IO connect_error: ${err.message}`);
-            resolve(false);
-          });
-        });
-
-        socketReachable = await socketConnectPromise;
-        testSocket.disconnect();
-      } catch (sockErr: any) {
-        socketReachable = false;
-        socketErrorDetail = sockErr.message || String(sockErr);
-        addLog(`Socket test library failure: ${socketErrorDetail}`);
-      }
-    }
-
-    if (socketReachable) {
-      setSocketStatus('success');
-      addLog('WebSockets connection established successfully!');
-    } else {
       setSocketStatus('failed');
-      addLog('WebSockets connection failed to establish.');
-      if (backendReachable) {
-        errorClassification = 'Socket Connection Failed';
-        errorMessage = `The HTTP API is responsive, but the WebSocket handshake was rejected. Reason: ${socketErrorDetail || 'Connection timeout'}. Verify CORS and WebSocket transport configurations on Railway.`;
-      }
-    }
-
-    // Wrap-up diagnostics report
-    const finalReport = {
-      apiUrl: url,
-      apiUrlSource: import.meta.env.VITE_API_URL ? 'import.meta.env.VITE_API_URL' : 'process.env.VITE_API_URL',
-      isUrlValid: isValid,
-      errorClassification: errorClassification,
-      errorMessage: errorMessage,
-      backendHttpStatus,
-      socketReachable,
-      timestamp: new Date().toISOString()
-    };
-
-    setResults(finalReport);
-    setLoading(false);
-
-    if (finalReport.errorClassification === 'OK' && socketReachable) {
-      addLog('All diagnostics passed perfectly! Proceeding to application...');
-      // Brief delay for visual polish before entering the app
-      setTimeout(() => {
-        onDiagnosticsPassed();
-      }, 1000);
-    } else {
-      addLog(`Diagnostics finished with ERROR classification: "${errorClassification}"`);
+      setResults({
+        apiUrl: getBackendUrl(),
+        isUrlValid: false,
+        errorClassification: 'UNKNOWN',
+        errorMessage: `Diagnostics system error: ${err.message}`,
+        timestamp: new Date().toISOString(),
+        exceptionMessage: err.message
+      });
+      setLoading(false);
     }
   };
 
@@ -345,12 +219,88 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
                 </div>
               </div>
 
-              {/* URL currently active display */}
-              <div className="flex flex-col gap-1 text-left bg-neutral-500/5 border border-neutral-500/10 p-3 rounded-lg">
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Connected API URL Path</span>
-                <span className="text-xs font-mono break-all font-semibold select-all">
-                  {results.apiUrl || <span className="text-red-500">Unconfigured (VITE_API_URL is empty)</span>}
-                </span>
+              {/* Detailed Technical Specs for Verification */}
+              <div className="flex flex-col gap-2 text-left bg-neutral-500/5 border border-neutral-500/10 p-3 rounded-lg">
+                <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Connected API URL Path</span>
+                  <span className="text-xs font-mono break-all font-semibold select-all">
+                    {results.apiUrl || <span className="text-red-500">Unconfigured (VITE_API_URL is empty)</span>}
+                  </span>
+                </div>
+
+                {results.fetchUrl && (
+                  <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Tested Fetch URL</span>
+                    <span className="text-xs font-mono break-all font-semibold select-all">
+                      {results.fetchUrl}
+                    </span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 border-b border-neutral-500/10 pb-2 pt-1">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">HTTP Status Code</span>
+                    <span className="text-xs font-mono font-semibold">
+                      {results.backendHttpStatus !== null ? results.backendHttpStatus : 'None (HTTP Failed)'}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Socket.IO State</span>
+                    <span className="text-xs font-mono font-semibold">
+                      {results.socketReachable ? 'Connected' : results.backendReachable ? 'Handshake Failed' : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+
+                {results.responseBody && (
+                  <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Response Body</span>
+                    <pre className="text-[10px] font-mono leading-tight bg-black/25 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
+                      {results.responseBody}
+                    </pre>
+                  </div>
+                )}
+
+                {results.exceptionMessage && (
+                  <div className="flex flex-col gap-0.5 pt-1 text-red-500 dark:text-red-400">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">JavaScript Exception</span>
+                    <pre className="text-[10px] font-mono leading-normal bg-red-500/5 p-2 rounded border border-red-500/10 max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
+                      {results.exceptionMessage}
+                    </pre>
+                  </div>
+                )}
+
+                {results.errorName && (
+                  <div className="flex flex-col gap-2 border-t border-neutral-500/10 pt-2 mt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-red-500 dark:text-red-400">
+                      Real Fetch Exception Breakdown
+                    </span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono leading-relaxed">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase opacity-50">error.name</span>
+                        <span className="font-semibold text-red-600 dark:text-red-300">{results.errorName}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase opacity-50">error.message</span>
+                        <span className="font-semibold text-red-600 dark:text-red-300">{results.realErrorMessage || results.errorMessage}</span>
+                      </div>
+                      <div className="flex flex-col md:col-span-2">
+                        <span className="text-[9px] font-bold uppercase opacity-50">requested URL</span>
+                        <span className="break-all text-neutral-600 dark:text-neutral-300">{results.realRequestedUrl || results.fetchUrl}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase opacity-50">HTTP Status</span>
+                        <span className="font-semibold text-neutral-600 dark:text-neutral-300">{results.realHttpStatus !== undefined ? String(results.realHttpStatus) : 'N/A'}</span>
+                      </div>
+                      <div className="flex flex-col md:col-span-2">
+                        <span className="text-[9px] font-bold uppercase opacity-50">response body</span>
+                        <pre className="text-[10px] bg-black/25 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap text-neutral-600 dark:text-neutral-300">
+                          {results.realResponseBody || results.responseBody || 'None'}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Recommended Action Advice depending on results */}

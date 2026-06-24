@@ -23,11 +23,13 @@ import {
   Camera,
   AtSign,
   AlignLeft,
-  MessageSquare
+  MessageSquare,
+  Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../utils/api.js';
 import ProfileTab from './ProfileTab.jsx';
+import { DebugPage } from './DebugPage';
 
 interface SettingsTabProps {
   theme: 'light' | 'dark';
@@ -39,7 +41,7 @@ interface SettingsTabProps {
 }
 
 export default function SettingsTab({ theme, onChangeTheme, onLogout, user, onUpdateUser, onStartPrivateChat }: SettingsTabProps) {
-  const [settingsSubView, setSettingsSubView] = useState<'main' | 'profile'>('main');
+  const [settingsSubView, setSettingsSubView] = useState<'main' | 'profile' | 'debug'>('main');
   const [privateReadReceipts, setPrivateReadReceipts] = useState(true);
 
   // Blocked users states
@@ -341,6 +343,15 @@ Device: Web Preview Sandbox Engine
     );
   }
 
+  if (settingsSubView === 'debug') {
+    return (
+      <DebugPage
+        isDarkMode={theme === 'dark'}
+        onBack={() => setSettingsSubView('main')}
+      />
+    );
+  }
+
   return (
     <div className="w-full h-full overflow-y-auto px-5 py-4 flex flex-col gap-5 scrollbar-none relative bg-app-bg text-app-text-primary transition-colors duration-300">
       
@@ -482,6 +493,19 @@ Device: Web Preview Sandbox Engine
           <div className="flex-1">
             <span className="font-bold block text-sm text-app-text-primary">Help & Support guide</span>
             <span className="text-app-text-secondary text-[10px]">FAQs, terms, bug reports & contact logs</span>
+          </div>
+          <ChevronRight className="w-4 h-4 text-app-text-secondary/50 group-hover:text-app-text-primary group-hover:translate-x-0.5 transition-all" />
+        </div>
+
+        {/* INTERACTIVE DEBUG & CONNECTIVITY DIAGNOSTICS CARD */}
+        <div 
+          onClick={() => setSettingsSubView('debug')}
+          className="flex items-center gap-3 bg-app-card p-4 rounded-2xl border border-app-border hover:border-app-btn-bg/40 transition-all duration-200 cursor-pointer select-none active:scale-[0.98] shadow-xs hover:shadow-md group"
+        >
+          <Activity className="w-4 h-4 text-amber-500 group-hover:scale-105 transition-transform animate-pulse" />
+          <div className="flex-1">
+            <span className="font-bold block text-sm text-app-text-primary">Debug & Diagnostics</span>
+            <span className="text-app-text-secondary text-[10px]">Real-time API probes, health status & Socket.IO telemetry</span>
           </div>
           <ChevronRight className="w-4 h-4 text-app-text-secondary/50 group-hover:text-app-text-primary group-hover:translate-x-0.5 transition-all" />
         </div>

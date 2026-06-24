@@ -729,45 +729,126 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
                   </div>
                 </div>
 
+                {/* Detailed Technical Specs for Verification */}
+                <div className="flex flex-col gap-2 text-left bg-black/10 border border-white/5 p-3 rounded-xl text-xs font-mono">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Tested Fetch URL</span>
+                    <span className="break-all select-all text-neutral-200">
+                      {diagResult.fetchUrl || diagResult.apiUrl || 'None'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 border-t border-white/5 pt-2 mt-1">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">HTTP Status</span>
+                      <span className="text-neutral-200 font-semibold">
+                        {diagResult.backendHttpStatus !== null ? diagResult.backendHttpStatus : 'None (HTTP Failed)'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Socket.IO State</span>
+                      <span className="text-neutral-200 font-semibold">
+                        {diagResult.socketReachable ? 'Connected' : 'Disconnected'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {diagResult.responseBody && (
+                    <div className="flex flex-col gap-0.5 border-t border-white/5 pt-2 mt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Response Body</span>
+                      <pre className="text-[10px] leading-tight bg-black/30 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap select-all text-neutral-300">
+                        {diagResult.responseBody}
+                      </pre>
+                    </div>
+                  )}
+
+                  {diagResult.exceptionMessage && (
+                    <div className="flex flex-col gap-0.5 border-t border-white/5 pt-2 mt-1 text-red-400">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-red-400/80">JavaScript Exception</span>
+                      <pre className="text-[10px] leading-normal bg-red-500/10 p-2 rounded border border-red-500/20 max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
+                        {diagResult.exceptionMessage}
+                      </pre>
+                    </div>
+                  )}
+
+                  {diagResult.errorName && (
+                    <div className="flex flex-col gap-2 border-t border-white/5 pt-2 mt-1 text-red-400 text-left">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-red-400/80">
+                        Real Fetch Exception Breakdown
+                      </span>
+                      <div className="grid grid-cols-1 gap-2 text-[11px] font-mono leading-relaxed text-neutral-300">
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase opacity-55 text-neutral-400">error.name</span>
+                          <span className="font-semibold text-red-400">{diagResult.errorName}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase opacity-55 text-neutral-400">error.message</span>
+                          <span className="font-semibold text-red-400">{diagResult.realErrorMessage || diagResult.errorMessage}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase opacity-55 text-neutral-400">requested URL</span>
+                          <span className="break-all text-neutral-300">{diagResult.realRequestedUrl || diagResult.fetchUrl}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase opacity-55 text-neutral-400">HTTP Status</span>
+                          <span className="font-semibold text-neutral-300">{diagResult.realHttpStatus !== undefined ? String(diagResult.realHttpStatus) : 'N/A'}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase opacity-55 text-neutral-400">response body</span>
+                          <pre className="text-[10px] bg-black/30 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap text-neutral-300">
+                            {diagResult.realResponseBody || diagResult.responseBody || 'None'}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Action steps */}
                 {diagResult.errorClassification !== 'OK' && (
-                  <div className="bg-amber-500/5 border border-amber-500/15 p-3 rounded-xl flex flex-col gap-1 text-[11px] leading-relaxed">
+                  <div className="bg-amber-500/5 border border-amber-500/15 p-3 rounded-xl flex flex-col gap-1 text-[11px] leading-relaxed text-left">
                     <span className="font-extrabold text-amber-500 uppercase tracking-wider mb-1 flex items-center gap-1">
                       <AlertTriangle className="w-3.5 h-3.5" /> Recommended Solution
                     </span>
-                    {diagResult.errorClassification === 'INVALID_URL' && (
+                    {(diagResult.errorClassification === 'INVALID_URL' || diagResult.errorClassification === 'API URL Missing' || diagResult.errorClassification === 'API URL Invalid') && (
                       <ol className="list-decimal pl-4 flex flex-col gap-1">
                         <li>Create a <code className="bg-black/10 px-1 rounded">.env</code> file in the project's root folder.</li>
                         <li>Add <code className="bg-black/10 px-1 rounded">BACKEND_URL=https://your-backend.railway.app</code>.</li>
                         <li>Run <code className="bg-black/10 px-1 rounded">npm run build</code> to bake this URL into the production bundle.</li>
                       </ol>
                     )}
-                    {diagResult.errorClassification === 'LOCAL_OFFLINE' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                    {(diagResult.errorClassification === 'LOCAL_OFFLINE' || diagResult.errorClassification === 'DNS Resolution Failed') && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
                         <li>Ensure the device has Wi-Fi or cellular mobile data enabled.</li>
+                        <li>Verify there are no typos in your backend domain name.</li>
                         <li>Check if your carrier or private DNS is blocking requests.</li>
                       </ul>
                     )}
-                    {diagResult.errorClassification === 'CLEARTEXT_BLOCKED' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                    {(diagResult.errorClassification === 'CLEARTEXT_BLOCKED' || diagResult.errorClassification === 'SSL Certificate Error') && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
                         <li>Android bans plain HTTP cleartext in production. Change the backend URL protocol from <code className="bg-black/10 px-1 rounded">http://</code> to a secure, SSL-encrypted <code className="bg-black/10 px-1 rounded">https://</code> protocol.</li>
+                        <li>If using a custom domain, ensure your SSL certificate is correctly provisioned (non-expired and non-self-signed).</li>
                       </ul>
                     )}
-                    {diagResult.errorClassification === 'TIMEOUT' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1">
+                    {(diagResult.errorClassification === 'TIMEOUT' || diagResult.errorClassification === 'Railway Timeout') && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
                         <li>Verify if your Railway backend is sleeping, crashed, or currently starting up.</li>
                         <li>Railway cold starts can take 20-30 seconds. Wait a moment and re-test.</li>
                       </ul>
                     )}
-                    {diagResult.errorClassification === 'SSL_OR_DNS_ERROR' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1">
-                        <li>Verify there are no typos in your backend domain name.</li>
-                        <li>If using a custom domain, ensure your SSL certificate is correctly provisioned (non-expired and non-self-signed).</li>
+                    {(diagResult.errorClassification === 'BACKEND_OFFLINE' || diagResult.errorClassification === 'Railway Server Offline') && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
+                        <li>The server is online but returned an error response. Check your Railway service logs to identify server crashes.</li>
                       </ul>
                     )}
-                    {diagResult.errorClassification === 'BACKEND_OFFLINE' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1">
-                        <li>The server is online but returned an error response. Check your Railway service logs to identify server crashes.</li>
+                    {diagResult.errorClassification === 'CORS Blocked' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
+                        <li>The server blocked the client request origin. Verify CORS permissions for the WebView app package are allowed.</li>
+                      </ul>
+                    )}
+                    {diagResult.errorClassification === 'Socket Connection Failed' && (
+                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
+                        <li>WebSockets handshake failed. Verify Socket.io setup, port binding, and proxy settings on your Railway container.</li>
                       </ul>
                     )}
                   </div>
