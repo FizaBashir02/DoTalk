@@ -5,7 +5,7 @@ import {
   Terminal, ShieldAlert, Cpu, Network, Wifi, Play, HelpCircle, HardDrive
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { getBackendUrl, getSocketUrl, getDiagnostics, runConnectivityDiagnostics } from '../utils/api.js';
+import { getBackendUrl, getSocketUrl, getDiagnostics, runConnectivityDiagnostics, getDebugInfo } from '../utils/api.js';
 
 interface StartupDiagnosticsProps {
   onDiagnosticsPassed: () => void;
@@ -27,6 +27,50 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
   const [healthStatus, setHealthStatus] = useState<'pending' | 'checking' | 'success' | 'failed'>('pending');
   const [socketStatus, setSocketStatus] = useState<'pending' | 'checking' | 'success' | 'failed'>('pending');
   const [systemLogs, setSystemLogs] = useState<string[]>([]);
+
+  // Manual Endpoint Test Panel state (Task 4)
+  const [manualTestResult, setManualTestResult] = useState<{
+    endpoint: string;
+    success: boolean | null;
+    statusCode: number | string | null;
+    responseText: string;
+    exceptionMessage: string;
+  } | null>(null);
+
+  const executeManualTest = async (endpoint: string) => {
+    const baseUrl = getBackendUrl();
+    const fullUrl = `${baseUrl}${endpoint}`;
+    setManualTestResult({
+      endpoint,
+      success: null,
+      statusCode: 'Testing...',
+      responseText: '',
+      exceptionMessage: ''
+    });
+    
+    addLog(`[Manual Test] Initiating GET ${fullUrl}...`);
+    try {
+      const response = await fetch(fullUrl, { method: 'GET', mode: 'cors' });
+      const text = await response.text();
+      addLog(`[Manual Test Success] GET ${endpoint} - Status ${response.status}`);
+      setManualTestResult({
+        endpoint,
+        success: response.ok,
+        statusCode: response.status,
+        responseText: text || '(Empty Response)',
+        exceptionMessage: 'None'
+      });
+    } catch (err: any) {
+      addLog(`[Manual Test Failed] GET ${endpoint} - ${err.message || String(err)}`);
+      setManualTestResult({
+        endpoint,
+        success: false,
+        statusCode: 'Failed to fetch',
+        responseText: 'None',
+        exceptionMessage: err.stack || err.message || String(err)
+      });
+    }
+  };
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -79,8 +123,11 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
       setResults(report);
       setLoading(false);
 
-      if (report.errorClassification === 'OK' && report.socketReachable) {
-        addLog('All diagnostics passed! Proceeding to application...');
+      if (report.backendReachable) {
+        addLog('REST API connection confirmed! Proceeding to application...');
+        if (!report.socketReachable) {
+          addLog('Note: Socket.IO WebSocket handshake is currently unavailable, but app will start.');
+        }
         setTimeout(() => {
           onDiagnosticsPassed();
         }, 1200);
@@ -220,87 +267,130 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
               </div>
 
               {/* Detailed Technical Specs for Verification */}
-              <div className="flex flex-col gap-2 text-left bg-neutral-500/5 border border-neutral-500/10 p-3 rounded-lg">
+              <div className="flex flex-col gap-3.5 text-left bg-neutral-500/5 border border-neutral-500/10 p-4 rounded-xl">
+                {/* REST API vs Socket.IO Statuses (Task 6) */}
+                <div className="grid grid-cols-2 gap-3 border-b border-neutral-500/10 pb-3">
+                  <div className="flex items-center gap-2 bg-neutral-500/10 p-2 rounded-lg border border-neutral-500/15">
+                    <div className={`w-2.5 h-2.5 rounded-full ${results.backendReachable ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                    <div className="flex flex-col">
+                      <span className="text-[9px] font-bold uppercase opacity-60">REST API Status</span>
+                      <span className="text-xs font-semibold">{results.backendReachable ? 'Reachable' : 'Unreachable'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-neutral-500/10 p-2 rounded-lg border border-neutral-500/15">
+                    <div className={`w-2.5 h-2.5 rounded-full ${results.socketReachable ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                    <div className="flex flex-col">
+                      <span className="text-[9px] font-bold uppercase opacity-60">Socket.IO Status</span>
+                      <span className="text-xs font-semibold">{results.socketReachable ? 'Connected' : 'Handshake Failed'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Current API URL */}
                 <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Connected API URL Path</span>
-                  <span className="text-xs font-mono break-all font-semibold select-all">
-                    {results.apiUrl || <span className="text-red-500">Unconfigured (VITE_API_URL is empty)</span>}
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Current API URL</span>
+                  <span className="text-xs font-mono break-all font-semibold text-sky-400 select-all">
+                    {getBackendUrl()}
                   </span>
                 </div>
 
-                {results.fetchUrl && (
-                  <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2 pt-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Tested Fetch URL</span>
-                    <span className="text-xs font-mono break-all font-semibold select-all">
-                      {results.fetchUrl}
-                    </span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2 border-b border-neutral-500/10 pb-2 pt-1">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">HTTP Status Code</span>
-                    <span className="text-xs font-mono font-semibold">
-                      {results.backendHttpStatus !== null ? results.backendHttpStatus : 'None (HTTP Failed)'}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Socket.IO State</span>
-                    <span className="text-xs font-mono font-semibold">
-                      {results.socketReachable ? 'Connected' : results.backendReachable ? 'Handshake Failed' : 'N/A'}
-                    </span>
+                {/* URL Configuration Validation */}
+                <div className="flex flex-col gap-1 border-b border-neutral-500/10 pb-2.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">URL Configuration Security Validation</span>
+                  <div className="bg-black/20 p-2 rounded text-[10px] font-mono flex flex-col gap-1 select-all border border-neutral-500/5 text-stone-300">
+                    <div>API URL: {getBackendUrl()}</div>
+                    <div>Socket URL: {getSocketUrl()}</div>
+                    {(() => {
+                      const apiLower = getBackendUrl().toLowerCase();
+                      const socketLower = getSocketUrl().toLowerCase();
+                      const containsDevHost = (url: string) => 
+                        url.includes('localhost') || 
+                        url.includes('127.0.0.1') || 
+                        url.includes('10.0.2.2') || 
+                        url.includes('capacitor://localhost');
+                        
+                      if (containsDevHost(apiLower) || containsDevHost(socketLower)) {
+                        return <div className="text-red-400 font-bold mt-1">⚠️ CONFIGURATION BUG: Localhost or development URL detected in production context!</div>;
+                      }
+                      return <div className="text-emerald-400 font-bold mt-1">✅ URL Configuration Safe: No development hosts detected.</div>;
+                    })()}
                   </div>
                 </div>
 
-                {results.responseBody && (
-                  <div className="flex flex-col gap-0.5 border-b border-neutral-500/10 pb-2 pt-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Response Body</span>
-                    <pre className="text-[10px] font-mono leading-tight bg-black/25 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
-                      {results.responseBody}
-                    </pre>
+                {/* Health Endpoint Result */}
+                <div className="flex flex-col gap-1 border-b border-neutral-500/10 pb-2.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Health Endpoint Result (/health)</span>
+                  <div className="bg-black/20 p-2 rounded text-[10px] font-mono flex flex-col gap-1 select-all border border-neutral-500/5">
+                    <div><span className="opacity-50">URL:</span> {getDebugInfo().healthResult?.url || `${getBackendUrl()}/health`}</div>
+                    <div><span className="opacity-50">Status:</span> <span className={getDebugInfo().healthResult?.status === 200 ? 'text-emerald-400 font-bold' : 'text-red-400'}>{getDebugInfo().healthResult?.status || 'Failed / No Response'}</span></div>
+                    <div><span className="opacity-50">Response Body:</span> <span className="text-stone-300">{getDebugInfo().healthResult?.body || 'None'}</span></div>
+                    {getDebugInfo().healthResult?.error && (
+                      <div className="text-red-400 break-all"><span className="opacity-50 text-white">Exception:</span> {getDebugInfo().healthResult?.error}</div>
+                    )}
                   </div>
-                )}
+                </div>
 
-                {results.exceptionMessage && (
-                  <div className="flex flex-col gap-0.5 pt-1 text-red-500 dark:text-red-400">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">JavaScript Exception</span>
-                    <pre className="text-[10px] font-mono leading-normal bg-red-500/5 p-2 rounded border border-red-500/10 max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
-                      {results.exceptionMessage}
-                    </pre>
+                {/* Root Endpoint Result */}
+                <div className="flex flex-col gap-1 border-b border-neutral-500/10 pb-2.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Root Endpoint Result (/)</span>
+                  <div className="bg-black/20 p-2 rounded text-[10px] font-mono flex flex-col gap-1 select-all border border-neutral-500/5">
+                    <div><span className="opacity-50">URL:</span> {getDebugInfo().rootResult?.url || `${getBackendUrl()}/`}</div>
+                    <div><span className="opacity-50">Status:</span> <span className={getDebugInfo().rootResult?.status === 200 ? 'text-emerald-400 font-bold' : 'text-red-400'}>{getDebugInfo().rootResult?.status || 'Failed / No Response'}</span></div>
+                    <div><span className="opacity-50">Response Body:</span> <span className="text-stone-300">{getDebugInfo().rootResult?.body || 'None'}</span></div>
+                    {getDebugInfo().rootResult?.error && (
+                      <div className="text-red-400 break-all"><span className="opacity-50 text-white">Exception:</span> {getDebugInfo().rootResult?.error}</div>
+                    )}
                   </div>
-                )}
+                </div>
 
-                {results.errorName && (
-                  <div className="flex flex-col gap-2 border-t border-neutral-500/10 pt-2 mt-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-red-500 dark:text-red-400">
-                      Real Fetch Exception Breakdown
-                    </span>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono leading-relaxed">
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase opacity-50">error.name</span>
-                        <span className="font-semibold text-red-600 dark:text-red-300">{results.errorName}</span>
+                {/* Socket Status & Handshake */}
+                <div className="flex flex-col gap-1 border-b border-neutral-500/10 pb-2.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Socket.IO WebSockets Status</span>
+                  <div className="bg-black/20 p-2 rounded text-[10px] font-mono flex flex-col gap-1 select-all border border-neutral-500/5">
+                    <div><span className="opacity-50">URL:</span> {getSocketUrl()}</div>
+                    <div><span className="opacity-50">Status State:</span> <span className={results.socketReachable ? 'text-emerald-400 font-bold' : 'text-amber-400'}>{getDebugInfo().socketStatus?.state || (results.socketReachable ? 'connected' : 'error')}</span></div>
+                    {getDebugInfo().socketStatus?.error && (
+                      <div className="text-red-400 break-all"><span className="opacity-50 text-white">Handshake Error:</span> {getDebugInfo().socketStatus?.error}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Last Fetch Audit (Task 4) */}
+                <div className="flex flex-col gap-1 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 font-bold">Last Outgoing Fetch Logs & Exception</span>
+                  <div className="bg-black/25 p-3 rounded-lg border border-red-500/10 text-[10px] font-mono flex flex-col gap-1.5 select-all">
+                    <div>
+                      <span className="opacity-50 uppercase text-[9px] block">Last Fetch URL</span>
+                      <span className="break-all font-semibold text-neutral-300">{getDebugInfo().lastFetchError?.url || results.fetchUrl || 'None'}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div>
+                        <span className="opacity-50 uppercase text-[9px] block">Last HTTP Status</span>
+                        <span className="font-bold text-neutral-300">
+                          {getDebugInfo().lastFetchError?.statusCode !== null && getDebugInfo().lastFetchError?.statusCode !== undefined 
+                            ? String(getDebugInfo().lastFetchError.statusCode) 
+                            : (results.backendHttpStatus !== null ? String(results.backendHttpStatus) : 'Failed to fetch')}
+                        </span>
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase opacity-50">error.message</span>
-                        <span className="font-semibold text-red-600 dark:text-red-300">{results.realErrorMessage || results.errorMessage}</span>
-                      </div>
-                      <div className="flex flex-col md:col-span-2">
-                        <span className="text-[9px] font-bold uppercase opacity-50">requested URL</span>
-                        <span className="break-all text-neutral-600 dark:text-neutral-300">{results.realRequestedUrl || results.fetchUrl}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase opacity-50">HTTP Status</span>
-                        <span className="font-semibold text-neutral-600 dark:text-neutral-300">{results.realHttpStatus !== undefined ? String(results.realHttpStatus) : 'N/A'}</span>
-                      </div>
-                      <div className="flex flex-col md:col-span-2">
-                        <span className="text-[9px] font-bold uppercase opacity-50">response body</span>
-                        <pre className="text-[10px] bg-black/25 p-2 rounded max-h-24 overflow-y-auto whitespace-pre-wrap text-neutral-600 dark:text-neutral-300">
-                          {results.realResponseBody || results.responseBody || 'None'}
-                        </pre>
+                      <div>
+                        <span className="opacity-50 uppercase text-[9px] block">Last Method</span>
+                        <span className="font-semibold text-neutral-300">{getDebugInfo().lastFetchError?.method || 'GET'}</span>
                       </div>
                     </div>
+                    <div className="mt-1">
+                      <span className="opacity-50 uppercase text-[9px] block">Last Response Body</span>
+                      <pre className="p-1.5 bg-black/45 rounded max-h-16 overflow-y-auto whitespace-pre-wrap text-stone-400 select-all border border-white/5">
+                        {getDebugInfo().lastFetchError?.responseBody || results.responseBody || 'None'}
+                      </pre>
+                    </div>
+                    <div className="mt-1">
+                      <span className="opacity-50 uppercase text-[9px] block">Last Fetch Exception</span>
+                      <pre className="p-1.5 bg-red-950/25 rounded max-h-24 overflow-y-auto whitespace-pre-wrap text-red-300 select-all border border-red-500/5">
+                        {getDebugInfo().lastFetchError?.exceptionMessage || results.exceptionMessage || 'None'}
+                      </pre>
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Recommended Action Advice depending on results */}
@@ -329,11 +419,6 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
                   {results.errorClassification === 'Railway Timeout' && (
                     <p className="leading-relaxed">
                       The request timed out. This is highly typical when serverless containers or shared databases are cold-starting on Railway. Please wait about 30 seconds and click the "Retry connection" button below.
-                    </p>
-                  )}
-                  {results.errorClassification === 'CORS Blocked' && (
-                    <p className="leading-relaxed">
-                      The backend received the call but blocked it via CORS policies. Verify that the server allows the Capacitor app origin (such as <code className="bg-black/10 px-1 rounded font-mono">capacitor://localhost</code> or <code className="bg-black/10 px-1 rounded font-mono">http://localhost</code>) in its server-side CORS config.
                     </p>
                   )}
                   {results.errorClassification === 'SSL Certificate Error' && (
@@ -419,6 +504,67 @@ export default function StartupDiagnostics({ onDiagnosticsPassed, theme = 'light
               {showUrlEditor ? 'Hide Override Console' : 'Override API URL'}
             </button>
           </div>
+        </div>
+
+        {/* Temporary Manual WebView Connection Test Panel (Task 4 & 10) */}
+        <div className="mt-4 p-4 rounded-xl border border-neutral-500/10 bg-neutral-500/5 flex flex-col gap-3 text-left">
+          <h4 className="text-xs font-extrabold uppercase tracking-widest flex items-center gap-1.5 opacity-80">
+            <Network className="w-4 h-4 text-emerald-500" /> Manual WebView Connectivity
+          </h4>
+          <p className="text-[11px] opacity-75">
+            Manually trigger connection requests from the mobile client to the production server:
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => executeManualTest('/')}
+              className="py-2 px-1 text-[10px] font-bold uppercase bg-neutral-500/10 hover:bg-neutral-500/20 text-neutral-300 rounded border border-neutral-500/20 cursor-pointer transition text-center"
+            >
+              TEST ROOT
+            </button>
+            <button
+              onClick={() => executeManualTest('/health')}
+              className="py-2 px-1 text-[10px] font-bold uppercase bg-neutral-500/10 hover:bg-neutral-500/20 text-neutral-300 rounded border border-neutral-500/20 cursor-pointer transition text-center"
+            >
+              TEST HEALTH
+            </button>
+            <button
+              onClick={() => executeManualTest('/api/health')}
+              className="py-2 px-1 text-[10px] font-bold uppercase bg-neutral-500/10 hover:bg-neutral-500/20 text-neutral-300 rounded border border-neutral-500/20 cursor-pointer transition text-center"
+            >
+              TEST API HEALTH
+            </button>
+          </div>
+
+          {manualTestResult && (
+            <div className="mt-2 p-3 rounded bg-black/35 font-mono text-[10px] flex flex-col gap-2 border border-neutral-500/10">
+              <div className="flex justify-between items-center pb-1 border-b border-white/5 font-semibold text-neutral-400">
+                <span>Endpoint: {manualTestResult.endpoint}</span>
+                <span className={manualTestResult.success === null ? 'text-amber-400' : manualTestResult.success ? 'text-emerald-400' : 'text-red-400'}>
+                  {manualTestResult.success === null ? 'RUNNING' : manualTestResult.success ? 'SUCCESS' : 'FAILED'}
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="opacity-60 text-[9px] uppercase font-bold text-neutral-400">URL:</span>
+                <span className="font-semibold text-white break-all select-all">{getBackendUrl()}{manualTestResult.endpoint}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="opacity-60 text-[9px] uppercase font-bold text-neutral-400">Status:</span>
+                <span className="font-semibold text-white select-all">{manualTestResult.statusCode}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="opacity-60 text-[9px] uppercase font-bold text-neutral-400">Response Body:</span>
+                <pre className="p-1.5 bg-black/50 rounded text-[9px] text-emerald-300 overflow-x-auto max-h-24 break-all whitespace-pre-wrap select-all border border-white/5">
+                  {manualTestResult.responseText}
+                </pre>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="opacity-60 text-[9px] uppercase font-bold text-neutral-400">Exception:</span>
+                <pre className={`p-1.5 rounded text-[9px] overflow-x-auto max-h-24 break-all whitespace-pre-wrap select-all border ${manualTestResult.exceptionMessage && manualTestResult.exceptionMessage !== 'None' ? 'bg-red-950/20 text-red-300 border-red-500/10' : 'bg-black/10 text-neutral-400 border-white/5'}`}>
+                  {manualTestResult.exceptionMessage}
+                </pre>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Developer / Hidden Diagnostics Console */}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Mail, User, ArrowRight, ArrowLeft, Activity, Wifi, Globe, Server, RefreshCw, X, ShieldAlert, AlertTriangle } from 'lucide-react';
-import { apiFetch, runConnectivityDiagnostics } from '../utils/api.js';
+import { apiFetch, runConnectivityDiagnostics, getBackendUrl } from '../utils/api.js';
 
 interface AuthScreensProps {
   onLoginSuccess: (token: string, user: any) => void;
@@ -97,13 +97,30 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
     resetMessages();
     setLoading(true);
 
+    const requestUrl = `${getBackendUrl()}/api/auth/register`;
+    const requestMethod = 'POST';
+    const requestHeaders = { 'Content-Type': 'application/json' };
+    const requestBody = JSON.stringify({ fullName, email });
+
+    console.log(`[DoTalk Sign Up Request]:
+      Request URL: ${requestUrl}
+      Request Method: ${requestMethod}
+      Request Headers: ${JSON.stringify(requestHeaders, null, 2)}
+      Request Body: ${requestBody}`);
+
     try {
       const response = await apiFetch('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ fullName, email })
+        body: requestBody
       });
 
+      const responseStatus = response.status;
       const data = await response.json();
+
+      console.log(`[DoTalk Sign Up Response]:
+        Response Status: ${responseStatus}
+        Response Body: ${JSON.stringify(data, null, 2)}`);
+
       if (response.ok) {
         setSuccessText('Verification code has been sent to your email.');
         setResendTimer(60);
@@ -117,6 +134,7 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
         setErrorText(data.error || 'Registration failed');
       }
     } catch (e: any) {
+      console.error('[DoTalk Sign Up Error]:', e);
       const diag = await runConnectivityDiagnostics();
       setErrorText(diag.errorMessage || 'Server connectivity issues (Connection failed).');
     } finally {
@@ -839,11 +857,6 @@ export default function AuthScreens({ onLoginSuccess, theme }: AuthScreensProps)
                     {(diagResult.errorClassification === 'BACKEND_OFFLINE' || diagResult.errorClassification === 'Railway Server Offline') && (
                       <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
                         <li>The server is online but returned an error response. Check your Railway service logs to identify server crashes.</li>
-                      </ul>
-                    )}
-                    {diagResult.errorClassification === 'CORS Blocked' && (
-                      <ul className="list-disc pl-4 flex flex-col gap-1 text-neutral-300">
-                        <li>The server blocked the client request origin. Verify CORS permissions for the WebView app package are allowed.</li>
                       </ul>
                     )}
                     {diagResult.errorClassification === 'Socket Connection Failed' && (

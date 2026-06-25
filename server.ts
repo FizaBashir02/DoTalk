@@ -43,41 +43,8 @@ const server = http.createServer(app);
 
 // 1. Comprehensive Production CORS Middleware registered early so ALL routes (including /health) receive CORS headers
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  const allowedOrigins = [
-    'https://do-talk-ivory.vercel.app',
-    'https://do-talk-amber.vercel.app',
-    'https://dotalk-production.up.railway.app'
-  ];
-
-  if (process.env.FRONTEND_URL) {
-    allowedOrigins.push(process.env.FRONTEND_URL);
-  }
-
-  const isAllowed = origin && (
-    allowedOrigins.includes(origin) || 
-    origin.endsWith('.vercel.app') ||
-    origin.endsWith('.railway.app') ||
-    origin.endsWith('.run.app') ||
-    origin.startsWith('capacitor://') ||
-    origin.startsWith('chrome-extension://')
-  );
-
-  if (isAllowed) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    if (process.env.FRONTEND_URL) {
-      res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL);
-    } else {
-      if (process.env.NODE_ENV !== 'production' || !origin) {
-        res.setHeader('Access-Control-Allow-Origin', origin || '*');
-      } else {
-        res.setHeader('Access-Control-Allow-Origin', 'null');
-      }
-    }
-  }
-  
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');

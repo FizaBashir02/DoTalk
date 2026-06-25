@@ -6,7 +6,7 @@ import ChatWindow from './components/ChatWindow.jsx';
 import ProfileTab from './components/ProfileTab.jsx';
 import SettingsTab from './components/SettingsTab.jsx';
 import StartupDiagnostics from './components/StartupDiagnostics.jsx';
-import { apiFetch, getSocketConnection } from './utils/api.js';
+import { apiFetch, getSocketConnection, getBackendUrl, getSocketUrl } from './utils/api.js';
 
 import {
   MessageSquare,
@@ -164,6 +164,8 @@ export default function App() {
 
   // Local persistent state loading
   useEffect(() => {
+    console.log("API URL =", getBackendUrl());
+    console.log("Socket URL =", getSocketUrl());
     const cachedToken = localStorage.getItem('dotalk_token');
     const cachedUser = localStorage.getItem('dotalk_user');
     const cachedTheme = localStorage.getItem('dotalk_theme') as 'light' | 'dark' | null;

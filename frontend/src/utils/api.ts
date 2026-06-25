@@ -8,9 +8,14 @@ export type DiagnosticErrorType =
   | 'Railway Server Offline'
   | 'Railway Timeout'
   | 'Socket Connection Failed'
-  | 'CORS Blocked'
   | 'SSL Certificate Error'
   | 'DNS Resolution Failed'
+  | 'Unreachable (HTTP failed)'
+  | 'Android network failure'
+  | 'Unknown transport failure'
+  | 'Endpoint not found'
+  | 'Backend error'
+  | 'Socket.IO failure'
   | 'UNKNOWN';
 
 // Global diagnostics tracking state
@@ -110,89 +115,14 @@ let latestDiagnostics: DiagnosticResult = {
 
 // Centralized Single Source of Truth for API URL Resolution
 export function getBackendUrl(): string {
-  // 1. Check for any active user-defined override from the diagnostics console
-  if (typeof window !== 'undefined' && window.localStorage) {
-    const override = window.localStorage.getItem('dotalk_custom_api_url');
-    if (override && override.trim() !== '') {
-      const trimmed = override.trim();
-      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-    }
-  }
-
-  // 2. For non-local web deployment preview and sharing URLs, prioritize the current origin.
-  // This guarantees that any client running inside an iframe or browser tab dynamically
-  // points to its corresponding backend server without stale environment variable side-effects.
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    const origin = window.location.origin;
-    if (
-      origin.startsWith('http') && 
-      !origin.includes('localhost') && 
-      !origin.includes('127.0.0.1') && 
-      !origin.includes('10.0.2.2')
-    ) {
-      return origin.endsWith('/') ? origin.slice(0, -1) : origin;
-    }
-  }
-
-  // 3. Read environment variables loaded by Vite (either at compile time or via define plugin)
-  const envUrl = 
-    import.meta.env.VITE_API_URL || 
-    import.meta.env.VITE_BACKEND_URL || 
-    import.meta.env.VITE_API_BASE_URL ||
-    (typeof process !== 'undefined' && process.env?.BACKEND_URL) ||
-    (typeof process !== 'undefined' && process.env?.VITE_API_URL);
-    
-  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    const trimmed = envUrl.trim();
-    if (
-      !trimmed.includes('localhost') &&
-      !trimmed.includes('127.0.0.1') &&
-      !trimmed.includes('10.0.2.2')
-    ) {
-      return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-    }
-  }
-
-  // 4. Strict default fallback for production (eliminating all insecure localhost loops)
+  // Force every REST API request to use the absolute production URL
   return 'https://dotalk-production.up.railway.app';
 }
 
 // Socket URL Resolution (HTTPS -> WSS, HTTP -> WS)
 export function getSocketUrl(): string {
-  // Check for any active user-defined override from the diagnostics console
-  if (typeof window !== 'undefined' && window.localStorage) {
-    const override = window.localStorage.getItem('dotalk_custom_api_url');
-    if (override && override.trim() !== '') {
-      const trimmed = override.trim();
-      const wsOverride = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-      if (wsOverride.startsWith('https://')) {
-        return wsOverride.replace('https://', 'wss://');
-      } else if (wsOverride.startsWith('http://')) {
-        return wsOverride.replace('http://', 'ws://');
-      }
-      return wsOverride;
-    }
-  }
-
-  const envWs = 
-    import.meta.env.VITE_WS_URL || 
-    import.meta.env.VITE_SOCKET_URL ||
-    import.meta.env.WS_URL ||
-    (typeof process !== 'undefined' && process.env?.WS_URL) ||
-    (typeof process !== 'undefined' && process.env?.VITE_WS_URL);
-    
-  if (envWs && typeof envWs === 'string' && envWs.trim() !== '') {
-    const trimmed = envWs.trim();
-    return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-  }
-
-  const backendUrl = getBackendUrl();
-  if (backendUrl.startsWith('https://')) {
-    return backendUrl.replace('https://', 'wss://');
-  } else if (backendUrl.startsWith('http://')) {
-    return backendUrl.replace('http://', 'ws://');
-  }
-  return backendUrl;
+  // Force every Socket.IO connection to use the absolute production URL
+  return 'https://dotalk-production.up.railway.app';
 }
 
 // Fetch with strict timeout capability
@@ -234,9 +164,17 @@ export async function apiFetch(
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const fullUrl = `${baseUrl}${cleanEndpoint}`;
   const method = options.method || 'GET';
+  const bodyPayload = options.body ? String(options.body) : 'None';
   
-  console.log(`[DoTalk Fetch] Exact URL requested: "${fullUrl}"`);
-  console.log(`[DoTalk Fetch] HTTP method: "${method}"`);
+  // Task 5: Add standard console.log('[REQUEST]', method, url)
+  console.log('[REQUEST]', method, fullUrl);
+
+  // Task 2: High-fidelity audit logging for every outgoing request
+  console.log(`[DoTalk Fetch Request Details]:
+    URL: "${fullUrl}"
+    METHOD: "${method}"
+    HEADERS: ${JSON.stringify(headers, null, 2)}
+    BODY: ${bodyPayload}`);
   
   let lastError: any;
 
@@ -247,27 +185,32 @@ export async function apiFetch(
         headers
       }, 10000);
 
-      console.log(`[DoTalk Fetch Success] URL: "${fullUrl}", Status: ${response.status}`);
+      // Task 2: Capture response text safely for audit logging
+      let responseText = '';
+      try {
+        const cloned = response.clone();
+        responseText = await cloned.text();
+      } catch (cloneErr) {
+        responseText = '(Failed to read response body via clone)';
+      }
+
+      // Task 5: Add standard console.log('[RESPONSE]', status, body)
+      console.log('[RESPONSE]', response.status, responseText || 'Empty');
+
+      console.log(`[DoTalk Fetch Success Details]:
+        URL: "${fullUrl}"
+        METHOD: "${method}"
+        STATUS: ${response.status}
+        RESPONSE TEXT: ${responseText || 'Empty'}`);
 
       // If response status is not 2xx, log the detailed response body
       if (!response.ok) {
-        try {
-          const cloned = response.clone();
-          const responseText = await cloned.text();
-          console.error(`[DoTalk Fetch Non-OK Status Details]:
-            URL: ${fullUrl}
-            METHOD: ${method}
-            STATUS: ${response.status}
-            RESPONSE: ${responseText || 'Empty'}
-            ERROR: HTTP Status indicates failure`);
-        } catch (cloneErr) {
-          console.error(`[DoTalk Fetch Non-OK Status Details]:
-            URL: ${fullUrl}
-            METHOD: ${method}
-            STATUS: ${response.status}
-            RESPONSE: (Failed to clone response body)
-            ERROR: HTTP Status indicates failure`);
-        }
+        console.error(`[DoTalk Fetch Non-OK Status Details]:
+          URL: ${fullUrl}
+          METHOD: ${method}
+          STATUS: ${response.status}
+          RESPONSE: ${responseText || 'Empty'}
+          ERROR: HTTP Status indicates failure`);
       }
 
       // Retry on temporary server-side crashes/gateways
@@ -280,6 +223,9 @@ export async function apiFetch(
       lastError = error;
       console.error(`[DoTalk Network Attempt Failed] Attempt ${attempt + 1}/${retries} for URL: ${fullUrl}. Exception: ${error.message || error}`);
       
+      // Task 5: Add standard console.error('[ERROR]', error)
+      console.error('[ERROR]', error);
+
       // Detailed standardized console logging format as requested by production audit
       console.error(`[DoTalk Fetch Failure Details]:
         URL: ${fullUrl}
@@ -526,8 +472,16 @@ export async function runConnectivityDiagnostics(): Promise<DiagnosticResult> {
       result.errorClassification = 'OK';
       result.errorMessage = null;
     } else {
-      result.errorClassification = 'Railway Server Offline';
-      result.errorMessage = `Server returned an unexpected HTTP status code on /health: ${response.status}`;
+      if (response.status === 404) {
+        result.errorClassification = 'Endpoint not found';
+        result.errorMessage = `Endpoint not found (404 Error)`;
+      } else if (response.status >= 500) {
+        result.errorClassification = 'Backend error';
+        result.errorMessage = `Backend error (HTTP ${response.status} Error)`;
+      } else {
+        result.errorClassification = 'Railway Server Offline';
+        result.errorMessage = `Server returned an unexpected HTTP status code on /health: ${response.status}`;
+      }
       
       // Store exact non-ok response info
       result.errorName = 'HTTPError';
@@ -608,8 +562,16 @@ export async function runConnectivityDiagnostics(): Promise<DiagnosticResult> {
         result.realResponseBody = undefined;
         result.exceptionMessage = undefined;
       } else {
-        result.errorClassification = 'Railway Server Offline';
-        result.errorMessage = `Server returned an unexpected HTTP status code on /: ${response.status}`;
+        if (response.status === 404) {
+          result.errorClassification = 'Endpoint not found';
+          result.errorMessage = `Endpoint not found (404 Error)`;
+        } else if (response.status >= 500) {
+          result.errorClassification = 'Backend error';
+          result.errorMessage = `Backend error (HTTP ${response.status} Error)`;
+        } else {
+          result.errorClassification = 'Railway Server Offline';
+          result.errorMessage = `Server returned an unexpected HTTP status code on /: ${response.status}`;
+        }
         
         result.errorName = 'HTTPError';
         result.realErrorMessage = `Server returned status code ${response.status} on /`;
@@ -644,18 +606,13 @@ export async function runConnectivityDiagnostics(): Promise<DiagnosticResult> {
       result.exceptionMessage = `Error Name: ${errName || 'TypeError'}\nError Message: ${errMessage || String(err)}\nRequested URL: ${rootUrl}\nHTTP Status: Failed to fetch\nResponse Body: None`;
       result.exceptionStack = err.stack || '';
 
-      // Differentiate CORS Blocked vs actual network exceptions
-      let isCorsError = false;
-      try {
-        await fetchWithTimeout(rootUrl, { method: 'GET', mode: 'no-cors' }, 4000);
-        isCorsError = true;
-      } catch (cErr) {
-        isCorsError = false;
-      }
-
-      if (isCorsError) {
-        result.errorClassification = 'CORS Blocked';
-        result.errorMessage = `CORS Error: Connection rejected by client browser security policies. The backend is online but is missing appropriate CORS header configurations. Exception: ${errMessage}`;
+      // Differentiate network exceptions without assuming CORS blocked
+      if (errMessage.includes("Network request failed")) {
+        result.errorClassification = 'Android network failure';
+        result.errorMessage = `Android network failure: ${errMessage}`;
+      } else if (errMessage.includes("Failed to fetch")) {
+        result.errorClassification = 'Unknown transport failure';
+        result.errorMessage = `Unknown transport failure: ${errMessage}`;
       } else if (errName === 'AbortError' || errMessage.includes('abort') || errMessage.includes('timeout')) {
         result.errorClassification = 'Railway Timeout';
         result.errorMessage = `Connection Timed Out: The request timed out after 6000ms. Exception: ${errMessage}`;
@@ -671,8 +628,8 @@ export async function runConnectivityDiagnostics(): Promise<DiagnosticResult> {
           result.errorClassification = 'DNS Resolution Failed';
           result.errorMessage = `DNS Resolution Failed: The hostname in the API URL could not be resolved to an IP address. Check for typos. Exception: ${errMessage}`;
         } else {
-          result.errorClassification = 'Railway Server Offline';
-          result.errorMessage = `Railway Server Offline: The target backend is unreachable. Exception: ${errMessage}`;
+          result.errorClassification = 'Unreachable (HTTP failed)';
+          result.errorMessage = `Unreachable: The target backend is unreachable. This could be due to DNS lookup issues, SSL trust anchor validation failure on your device, local network security policy restrictions, or server-side CORS rules. Exception: ${errMessage}`;
         }
       }
     }
@@ -734,8 +691,8 @@ export async function runConnectivityDiagnostics(): Promise<DiagnosticResult> {
       };
 
       if (result.backendReachable) {
-        result.errorClassification = 'Socket Connection Failed';
-        result.errorMessage = `Socket Connection Failed: HTTP API is active, but Socket.IO WebSocket handshake failed. Error: ${connectionResult.err || 'Timeout'}`;
+        result.errorClassification = 'Socket.IO failure';
+        result.errorMessage = `Socket.IO failure: HTTP API is active, but Socket.IO WebSocket handshake failed. Error: ${connectionResult.err || 'Timeout'}`;
       }
     }
   } catch (sockErr: any) {
