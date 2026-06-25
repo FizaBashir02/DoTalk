@@ -98,6 +98,8 @@ async function startServer() {
     res.status(200).json({ status: "ok" });
   });
 
+  console.log("HEALTHCHECK ROUTE REGISTERED");
+
   // Root route requirement for health checks: / → returns "DoTalk API Running"
   app.get('/', (req, res, next) => {
     const isProd = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
@@ -383,6 +385,7 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
+    console.log(`SERVER LISTENING ON PORT: ${PORT}`);
     console.log(`=======================================================`);
     console.log(`        DoTalk Full-Stack Server Running Successfully `);
     console.log(`             Local Preview: http://localhost:${PORT}  `);
